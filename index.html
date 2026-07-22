@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>AnimRu — смотреть аниме онлайн</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://anilibria.top">
+<link rel="preconnect" href="https://cache.libria.fun">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a href="#/" class="logo" aria-label="AnimRu">
+      <span class="logo-mark">A</span><span class="logo-text">AnimRu</span>
+    </a>
+    <div class="search-wrap">
+      <form class="search" id="searchForm" role="search">
+        <input type="search" id="searchInput" placeholder="Поиск: название, жанр..." autocomplete="off" aria-label="Поиск">
+        <button type="submit" aria-label="Найти">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8L19 20.5l1.5-1.5-5-5Zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14Z"/></svg>
+        </button>
+      </form>
+      <div id="suggestBox" class="suggest" hidden></div>
+    </div>
+    <button class="menu-btn" id="menuBtn" aria-label="Меню">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+  <nav class="tabs" id="tabs">
+    <a href="#/" data-tab="updates" class="tab active">Обновления</a>
+    <a href="#/popular" data-tab="popular" class="tab">Популярное</a>
+    <a href="#/random" data-tab="random" class="tab">Случайное</a>
+  </nav>
+</header>
+
+<main id="app">
+  <section id="view-list" class="view wrap">
+    <h1 id="listTitle">Последние обновления</h1>
+    <div id="filterBar" class="filter-bar" hidden></div>
+    <div id="grid" class="grid" aria-live="polite"></div>
+    <div id="loadMoreWrap" class="load-more-wrap" hidden>
+      <button id="loadMore" class="btn">Показать ещё</button>
+    </div>
+    <div id="listStatus" class="status"></div>
+  </section>
+
+  <section id="view-title" class="view" hidden>
+    <div class="hero">
+      <div class="hero-bg" id="tHeroBg"></div>
+      <div class="hero-shade"></div>
+      <button class="back" id="backBtn">← Назад</button>
+      <div class="hero-inner wrap">
+        <div class="poster-col">
+          <img id="tPoster" alt="" class="poster">
+        </div>
+        <div class="info-col">
+          <h1 id="tName"></h1>
+          <p id="tNameEn" class="muted"></p>
+          <div id="tMeta" class="meta-row"></div>
+          <div id="tGenres" class="chips"></div>
+          <p id="tDesc" class="desc"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="player-block">
+        <div class="player-wrap">
+          <video id="player" controls playsinline preload="metadata"></video>
+        </div>
+        <div class="player-controls">
+          <div class="quality" id="qualityBox" hidden>
+            <span>Качество:</span>
+            <div class="quality-btns" id="qualityBtns"></div>
+          </div>
+          <div class="episode-nav">
+            <button id="prevEp" class="btn">← Предыдущая</button>
+            <span id="epLabel" class="ep-label"></span>
+            <button id="nextEp" class="btn">Следующая →</button>
+          </div>
+        </div>
+        <div id="episodes" class="episodes"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-error" class="view wrap" hidden>
+    <h2>Что-то пошло не так</h2>
+    <p id="errText" class="muted"></p>
+    <button class="btn" onclick="location.hash='#/'">На главную</button>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p>Источник данных: Anilibria API v1 · UI: AnimRu</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
