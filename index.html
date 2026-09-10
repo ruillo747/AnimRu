@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f1114">
-<meta name="description" content="AnimRu — каталог аниме с онлайн-просмотром: обновления, поиск по жанрам, годам и типам.">
+<meta name="description" content="AnimRu — аниме онлайн: онгоинги, новые серии, топ, каталог с фильтрами и прогресс просмотра.">
 <title>AnimRu — аниме онлайн</title>
 <link rel="stylesheet" href="style.css">
 <link rel="preconnect" href="https://anilibria.top">
@@ -16,9 +16,9 @@
     <a href="#/" class="logo" aria-label="AnimRu">Anim<span>Ru</span></a>
 
     <nav class="nav" id="nav">
-      <a href="#/" data-tab="updates" class="nav-link">Обновления</a>
-      <a href="#/popular" data-tab="popular" class="nav-link">Популярное</a>
+      <a href="#/" data-tab="home" class="nav-link">Главная</a>
       <a href="#/catalog" data-tab="catalog" class="nav-link">Каталог</a>
+      <a href="#/top" data-tab="top" class="nav-link">Топ-100</a>
       <a href="#/random" data-tab="random" class="nav-link">Случайное</a>
     </nav>
 
@@ -30,6 +30,11 @@
       <div id="suggestBox" class="suggest" hidden></div>
     </div>
 
+    <a class="lvl-chip" id="lvlChip" href="#/profile" title="Профиль и боевой пропуск">
+      <span class="lvl-num" id="lvlChipNum">1</span>
+      <span class="lvl-bar"><i id="lvlChipBar"></i></span>
+    </a>
+
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Меню" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
@@ -37,9 +42,11 @@
 </header>
 
 <main id="app">
-  <!-- ============ LIST / CATALOG ============ -->
-  <section id="view-list" class="view wrap">
-    <section id="continueBlock" class="continue" hidden>
+  <!-- ============ HOME ============ -->
+  <section id="view-home" class="view wrap" hidden>
+    <section class="pass" id="passCard"></section>
+
+    <section id="continueBlock" class="row-block" hidden>
       <div class="section-head">
         <h2>Продолжить просмотр</h2>
         <button class="link-btn" id="clearContinue">Очистить</button>
@@ -47,8 +54,43 @@
       <div class="rail" id="continueRail"></div>
     </section>
 
+    <section class="row-block">
+      <div class="section-head">
+        <h2>Онгоинги</h2>
+        <a class="link-btn" href="#/catalog">В каталог</a>
+      </div>
+      <div class="rail" id="railOngoing"></div>
+    </section>
+
+    <section class="row-block">
+      <div class="section-head">
+        <h2>Новые серии</h2>
+        <a class="link-btn" href="#/catalog">Все обновления</a>
+      </div>
+      <div class="rail" id="railNew"></div>
+    </section>
+
+    <section class="row-block">
+      <div class="section-head">
+        <h2>Популярное за всё время</h2>
+        <a class="link-btn" href="#/top">Топ-100</a>
+      </div>
+      <div class="rail" id="railPopular"></div>
+    </section>
+
+    <section class="row-block">
+      <div class="section-head">
+        <h2>Топ-100 AnimRu</h2>
+        <a class="link-btn" href="#/top">Смотреть всё</a>
+      </div>
+      <ol class="top-list" id="topPreview"></ol>
+    </section>
+  </section>
+
+  <!-- ============ LIST / CATALOG / TOP ============ -->
+  <section id="view-list" class="view wrap" hidden>
     <div class="list-head">
-      <h1 id="listTitle">Последние обновления</h1>
+      <h1 id="listTitle">Каталог</h1>
       <button class="btn btn-ghost" id="filterToggle" hidden aria-expanded="false">Фильтры</button>
     </div>
 
@@ -56,6 +98,7 @@
       <aside id="filterBar" class="filters" hidden></aside>
       <div class="catalog-main">
         <div id="activeFilters" class="active-filters" hidden></div>
+        <ol class="top-list" id="topList" hidden></ol>
         <div id="grid" class="grid" aria-live="polite"></div>
         <div id="loadMoreWrap" class="load-more-wrap" hidden>
           <button id="loadMore" class="btn">Показать ещё</button>
@@ -63,6 +106,50 @@
         <p id="listStatus" class="status"></p>
       </div>
     </div>
+  </section>
+
+  <!-- ============ PROFILE / BATTLE PASS ============ -->
+  <section id="view-profile" class="view wrap" hidden>
+    <div class="pf-head">
+      <div class="pf-card" id="pfCard">
+        <div class="pf-avatar" id="pfAvatar"><span id="pfAvatarGlyph">ア</span></div>
+        <div class="pf-meta">
+          <p class="pf-title" id="pfTitle">Новичок</p>
+          <h1 id="pfName">Зритель</h1>
+          <div class="pf-lvl">
+            <span>Уровень <b id="pfLevel">1</b></span>
+            <span class="muted small" id="pfXp">0 / 100 XP</span>
+          </div>
+          <div class="progress-line wide"><i id="pfBar"></i></div>
+        </div>
+      </div>
+      <div class="pf-stats" id="pfStats"></div>
+    </div>
+
+    <section class="row-block">
+      <div class="section-head">
+        <h2>Квесты</h2>
+        <span class="muted small" id="questReset"></span>
+      </div>
+      <div class="quests" id="questList"></div>
+    </section>
+
+    <section class="row-block">
+      <div class="section-head">
+        <h2>Боевой пропуск «Нулевой слой»</h2>
+        <span class="muted small" id="rewardCount"></span>
+      </div>
+      <div class="reward-grid" id="rewardGrid"></div>
+    </section>
+
+    <section class="row-block">
+      <div class="section-head"><h2>Данные прогресса</h2></div>
+      <p class="muted small">Прогресс, уровни и предметы хранятся только в этом браузере — аккаунтов и сервера у сайта нет.</p>
+      <div class="pf-actions">
+        <button class="btn btn-ghost" id="pfExport">Скопировать сохранение</button>
+        <button class="btn btn-ghost" id="pfReset">Сбросить прогресс</button>
+      </div>
+    </section>
   </section>
 
   <!-- ============ TITLE ============ -->
@@ -178,6 +265,8 @@
   </section>
 </main>
 
+<div class="toast" id="toast" hidden></div>
+
 <footer class="foot">
   <div class="wrap">
     <p>Данные: Anilibria API v1. Проект некоммерческий, видео размещено на стороне источника.</p>
@@ -185,6 +274,7 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<script src="gamify.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
