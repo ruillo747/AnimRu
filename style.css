@@ -17,7 +17,7 @@
   --danger: #ff7183;
   --rare: #6aa6ff;
   --epic: #b483ff;
-  --myth: #f1b martin;
+  --myth: #f1b45a;
   --r-sm: 10px;
   --r: 14px;
   --r-lg: 20px;
@@ -26,8 +26,6 @@
   --shadow: 0 20px 60px rgba(3, 6, 16, .55);
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
-
-:root { --myth: #f1b45a; }
 
 html[data-theme='light'] {
   --bg: #e9edf6;
