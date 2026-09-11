@@ -1,380 +1,423 @@
-/* AnimRu — слой данных: аккаунты и прогресс.
-   Два бэкенда:
-   1. supabase — если в config.js заданы URL и anon-ключ (Postgres + Auth по REST);
-   2. local — IndexedDB в браузере, пароли хешируются PBKDF2-SHA256.
-   Публичный API одинаковый: window.AnimDB. */
+/* AnimRu — слой данных: аккаунты, прогресс, списки, оценки, комментарии.
+   Два режима: локальный (IndexedDB в браузере) и облачный (Supabase REST).
+   Режим выбирается по config.js — если там есть ключи, включается облако. */
 (function () {
   'use strict';
 
   var CFG = window.ANIMRU_CONFIG || {};
-  var SB_URL = (CFG.supabaseUrl || '').replace(/\/+$/, '');
-  var SB_KEY = CFG.supabaseAnonKey || '';
-  var USE_SB = !!(SB_URL && SB_KEY);
-
-  var LS_SESSION = 'animru:session';
-  var DB_NAME = 'animru';
-  var DB_VERSION = 1;
+  var BASE = String(CFG.supabaseUrl || '').replace(/\/+$/, '');
+  var ANON = String(CFG.supabaseAnonKey || '');
+  var CLOUD = !!(BASE && ANON);
+  var SESSION_KEY = 'animru:session';
 
   /* ---------------- общие утилиты ---------------- */
 
-  function normEmail(email) {
-    return String(email || '').trim().toLowerCase();
+  function nowIso() { return new Date().toISOString(); }
+
+  function readJson(key, def) {
+    try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : def; }
+    catch (e) { return def; }
   }
 
-  function fail(message) {
-    return Promise.reject(new Error(message));
+  function writeJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+
+  var subs = [];
+  function emit() {
+    var user = me();
+    for (var i = 0; i < subs.length; i++) {
+      try { subs[i](user); } catch (e) {}
+    }
+  }
+
+  function getSession() { return readJson(SESSION_KEY, null); }
+
+  function setSession(s) {
+    if (s) writeJson(SESSION_KEY, s);
+    else { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+    emit();
+  }
+
+  function me() {
+    var s = getSession();
+    return s && s.user ? s.user : null;
+  }
+
+  function checkEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || '').trim());
   }
 
   function validate(data, needName) {
-    var email = normEmail(data && data.email);
-    var password = String((data && data.password) || '');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return 'Проверьте адрес почты';
-    if (password.length < 8) return 'Пароль короче 8 символов';
-    if (needName && String((data && data.name) || '').trim().length < 2) return 'Имя короче 2 символов';
-    return null;
+    if (!checkEmail(data.email)) throw new Error('Проверьте адрес почты');
+    if (String(data.password || '').length < 8) throw new Error('Пароль — минимум 8 символов');
+    if (needName && String(data.name || '').trim().length < 2) throw new Error('Имя — минимум 2 символа');
   }
 
-  function readSession() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_SESSION) || 'null');
-    } catch (e) {
-      return null;
-    }
+  function ruError(msg) {
+    var m = String(msg || '');
+    if (/already registered|already exists|duplicate/i.test(m)) return 'Такая почта уже зарегистрирована';
+    if (/invalid login credentials/i.test(m)) return 'Неверная почта или пароль';
+    if (/email not confirmed/i.test(m)) return 'Почта не подтверждена — проверьте письмо';
+    if (/rate limit|too many/i.test(m)) return 'Слишком много попыток, попробуйте позже';
+    if (/password/i.test(m) && /short|least/i.test(m)) return 'Пароль слишком короткий';
+    if (/failed to fetch|networkerror/i.test(m)) return 'Нет связи с сервером';
+    return m || 'Что-то пошло не так';
   }
 
-  function writeSession(value) {
-    try {
-      if (value) localStorage.setItem(LS_SESSION, JSON.stringify(value));
-      else localStorage.removeItem(LS_SESSION);
-    } catch (e) {
-      /* приватный режим — работаем без сохранения сессии */
-    }
-  }
+  /* ---------------- облачный режим ---------------- */
 
-  /* ---------------- бэкенд Supabase ---------------- */
-
-  function sbFetch(path, options) {
-    var opts = options || {};
-    var headers = Object.assign({ apikey: SB_KEY, 'Content-Type': 'application/json' }, opts.headers || {});
-    var session = readSession();
-    if (opts.auth !== false && session && session.accessToken) {
-      headers.Authorization = 'Bearer ' + session.accessToken;
-    }
-    return fetch(SB_URL + path, { method: opts.method || 'GET', headers: headers, body: opts.body })
-      .then(function (response) {
-        return response.text().then(function (text) {
-          var json = null;
-          if (text) {
-            try {
-              json = JSON.parse(text);
-            } catch (e) {
-              json = null;
-            }
-          }
-          if (!response.ok) {
-            var message = (json && (json.msg || json.message || json.error_description || json.error)) || 'Сервер ответил ' + response.status;
-            throw new Error(message);
-          }
-          return json;
-        });
-      });
-  }
-
-  function sbSession(payload, name) {
-    var user = payload && payload.user;
-    if (!payload || !payload.access_token || !user) {
-      throw new Error('Подтвердите адрес почты по ссылке из письма, затем войдите');
-    }
-    var meta = user.user_metadata || {};
-    var session = {
-      backend: 'supabase',
-      accessToken: payload.access_token,
-      refreshToken: payload.refresh_token || '',
-      user: { id: user.id, email: user.email, name: name || meta.name || (user.email || '').split('@')[0] }
+  function api(path, opts) {
+    opts = opts || {};
+    var s = getSession();
+    var headers = {
+      apikey: ANON,
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + (!opts.anon && s && s.token ? s.token : ANON)
     };
-    writeSession(session);
-    return session.user;
+    if (opts.headers) {
+      for (var k in opts.headers) { if (Object.prototype.hasOwnProperty.call(opts.headers, k)) headers[k] = opts.headers[k]; }
+    }
+    return fetch(BASE + path, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        var data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+        if (!res.ok) {
+          if (res.status === 401 && s && s.token) setSession(null);
+          var msg = (data && (data.msg || data.message || data.error_description || data.error || data.hint)) || ('Ошибка ' + res.status);
+          throw new Error(ruError(msg));
+        }
+        return data;
+      });
+    }, function () { throw new Error('Нет связи с сервером'); });
   }
 
-  var supabaseBackend = {
-    name: 'supabase',
+  function saveCloudSession(payload, fallbackName) {
+    var user = payload && payload.user ? payload.user : null;
+    if (!payload || !payload.access_token || !user) throw new Error('Сервер не вернул сессию');
+    var meta = user.user_metadata || {};
+    setSession({
+      token: payload.access_token,
+      refresh: payload.refresh_token || '',
+      user: {
+        id: user.id,
+        email: user.email || '',
+        name: meta.name || fallbackName || (user.email || '').split('@')[0],
+        provider: (user.app_metadata && user.app_metadata.provider) || 'email'
+      }
+    });
+    return me();
+  }
 
-    signUp: function (data) {
-      var problem = validate(data, true);
-      if (problem) return fail(problem);
-      var name = String(data.name).trim();
-      return sbFetch('/auth/v1/signup', {
-        method: 'POST',
-        auth: false,
-        body: JSON.stringify({ email: normEmail(data.email), password: data.password, data: { name: name } })
-      }).then(function (payload) {
-        var user = sbSession(payload, name);
-        return supabaseBackend.saveProfile({ name: name }).then(function () {
-          return user;
-        });
-      });
-    },
+  function upsertProfile(patch) {
+    var user = me();
+    if (!user) return Promise.resolve(null);
+    var row = { id: user.id, email: user.email, name: user.name, updated_at: nowIso() };
+    for (var k in patch) { if (Object.prototype.hasOwnProperty.call(patch, k)) row[k] = patch[k]; }
+    return api('/rest/v1/profiles?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [row]
+    });
+  }
 
-    signIn: function (data) {
-      var problem = validate(data, false);
-      if (problem) return fail(problem);
-      return sbFetch('/auth/v1/token?grant_type=password', {
-        method: 'POST',
-        auth: false,
-        body: JSON.stringify({ email: normEmail(data.email), password: data.password })
-      }).then(function (payload) {
-        return sbSession(payload, null);
-      });
-    },
+  /* Возврат после входа через Google/Discord: Supabase кладёт токен в hash. */
+  function captureOauthRedirect() {
+    if (!CLOUD) return;
+    var hash = location.hash || '';
+    if (hash.indexOf('access_token=') === -1) return;
+    var params = new URLSearchParams(hash.replace(/^#/, ''));
+    var token = params.get('access_token');
+    if (!token) return;
+    history.replaceState(null, '', location.pathname + location.search + '#/');
+    fetch(BASE + '/auth/v1/user', { headers: { apikey: ANON, Authorization: 'Bearer ' + token } })
+      .then(function (r) { return r.json(); })
+      .then(function (user) {
+        saveCloudSession({ access_token: token, refresh_token: params.get('refresh_token') || '', user: user });
+        return upsertProfile({});
+      })
+      .catch(function () {});
+  }
 
-    signOut: function () {
-      return sbFetch('/auth/v1/logout', { method: 'POST' })
-        .catch(function () {
-          return null;
-        })
-        .then(function () {
-          writeSession(null);
-        });
-    },
-
-    saveProfile: function (patch) {
-      var session = readSession();
-      if (!session) return fail('Нужен вход');
-      var row = Object.assign({ id: session.user.id, email: session.user.email }, patch);
-      return sbFetch('/rest/v1/profiles?on_conflict=id', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify(row)
-      }).then(function () {
-        if (patch && patch.name) {
-          session.user.name = patch.name;
-          writeSession(session);
-        }
-        return session.user;
-      });
-    },
-
-    pullProgress: function () {
-      var session = readSession();
-      if (!session) return fail('Нужен вход');
-      return sbFetch('/rest/v1/profiles?select=gamify,watch&id=eq.' + encodeURIComponent(session.user.id)).then(function (rows) {
-        var row = (rows && rows[0]) || {};
-        return { gamify: row.gamify || null, watch: row.watch || null };
-      });
-    },
-
-    pushProgress: function (progress) {
-      return supabaseBackend.saveProfile({
-        gamify: progress.gamify || null,
-        watch: progress.watch || null,
-        updated_at: new Date().toISOString()
-      });
-    }
-  };
-
-  /* ---------------- бэкенд IndexedDB ---------------- */
+  /* ---------------- локальный режим ---------------- */
 
   var dbPromise = null;
 
-  function openDb() {
+  function idb() {
     if (dbPromise) return dbPromise;
     dbPromise = new Promise(function (resolve, reject) {
-      if (!window.indexedDB) {
-        reject(new Error('Браузер не поддерживает локальную базу'));
-        return;
-      }
-      var request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = function () {
-        var db = request.result;
-        if (!db.objectStoreNames.contains('users')) {
-          db.createObjectStore('users', { keyPath: 'email' });
-        }
-        if (!db.objectStoreNames.contains('progress')) {
-          db.createObjectStore('progress', { keyPath: 'email' });
-        }
+      if (!self.indexedDB) { reject(new Error('Браузер не поддерживает локальную базу')); return; }
+      var req = indexedDB.open('animru', 2);
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains('users')) db.createObjectStore('users', { keyPath: 'email' });
+        if (!db.objectStoreNames.contains('progress')) db.createObjectStore('progress', { keyPath: 'email' });
       };
-      request.onsuccess = function () {
-        resolve(request.result);
-      };
-      request.onerror = function () {
-        reject(request.error || new Error('Не удалось открыть локальную базу'));
-      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(new Error('Не удалось открыть локальную базу')); };
     });
     return dbPromise;
   }
 
-  function tx(store, mode, run) {
-    return openDb().then(function (db) {
+  function store(name, mode, run) {
+    return idb().then(function (db) {
       return new Promise(function (resolve, reject) {
-        var transaction = db.transaction(store, mode);
-        var request = run(transaction.objectStore(store));
-        transaction.oncomplete = function () {
-          resolve(request ? request.result : null);
-        };
-        transaction.onerror = function () {
-          reject(transaction.error || new Error('Ошибка запроса к базе'));
-        };
-        transaction.onabort = function () {
-          reject(transaction.error || new Error('Запрос к базе отменён'));
-        };
+        var t = db.transaction(name, mode);
+        var request = run(t.objectStore(name));
+        t.oncomplete = function () { resolve(request ? request.result : null); };
+        t.onerror = function () { reject(new Error('Ошибка локальной базы')); };
+        t.onabort = function () { reject(new Error('Операция прервана')); };
       });
     });
   }
 
-  function toHex(buffer) {
-    return Array.prototype.map
-      .call(new Uint8Array(buffer), function (byte) {
-        return ('0' + byte.toString(16)).slice(-2);
-      })
-      .join('');
+  function toHex(bytes) {
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+    return out;
   }
 
-  function randomSalt() {
-    var bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    return toHex(bytes);
+  function fromHex(hex) {
+    var bytes = new Uint8Array(hex.length / 2);
+    for (var i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return bytes;
   }
 
-  function hashPassword(password, salt) {
-    var encoder = new TextEncoder();
-    if (!crypto.subtle) return Promise.reject(new Error('Нужен защищённый контекст (https или localhost)'));
-    return crypto.subtle
-      .importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
+  function subtle() {
+    if (!self.crypto || !self.crypto.subtle) {
+      throw new Error('Нужен защищённый контекст (https или localhost)');
+    }
+    return self.crypto.subtle;
+  }
+
+  function hashPassword(password, saltHex) {
+    var salt = saltHex ? fromHex(saltHex) : self.crypto.getRandomValues(new Uint8Array(16));
+    var enc = new TextEncoder();
+    return subtle().importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits'])
       .then(function (key) {
-        return crypto.subtle.deriveBits(
-          { name: 'PBKDF2', hash: 'SHA-256', salt: encoder.encode(salt), iterations: 150000 },
-          key,
-          256
-        );
+        return subtle().deriveBits({ name: 'PBKDF2', salt: salt, iterations: 150000, hash: 'SHA-256' }, key, 256);
       })
-      .then(toHex);
+      .then(function (bits) {
+        return { salt: toHex(salt), hash: toHex(new Uint8Array(bits)) };
+      });
   }
 
-  function localUser(row) {
-    return { id: row.email, email: row.email, name: row.name };
-  }
-
-  var localBackend = {
-    name: 'local',
-
-    signUp: function (data) {
-      var problem = validate(data, true);
-      if (problem) return fail(problem);
-      var email = normEmail(data.email);
-      var name = String(data.name).trim();
-      return tx('users', 'readonly', function (store) {
-        return store.get(email);
-      }).then(function (existing) {
-        if (existing) throw new Error('Такая почта уже зарегистрирована');
-        var salt = randomSalt();
-        return hashPassword(data.password, salt).then(function (hash) {
-          var row = { email: email, name: name, salt: salt, hash: hash, createdAt: Date.now() };
-          return tx('users', 'readwrite', function (store) {
-            return store.put(row);
-          }).then(function () {
-            writeSession({ backend: 'local', user: localUser(row) });
-            return localUser(row);
-          });
-        });
-      });
-    },
-
-    signIn: function (data) {
-      var problem = validate(data, false);
-      if (problem) return fail(problem);
-      var email = normEmail(data.email);
-      return tx('users', 'readonly', function (store) {
-        return store.get(email);
-      }).then(function (row) {
-        if (!row) throw new Error('Аккаунт не найден');
-        return hashPassword(data.password, row.salt).then(function (hash) {
-          if (hash !== row.hash) throw new Error('Неверный пароль');
-          writeSession({ backend: 'local', user: localUser(row) });
-          return localUser(row);
-        });
-      });
-    },
-
-    signOut: function () {
-      writeSession(null);
-      return Promise.resolve();
-    },
-
-    saveProfile: function (patch) {
-      var session = readSession();
-      if (!session) return fail('Нужен вход');
-      var email = session.user.email;
-      return tx('users', 'readonly', function (store) {
-        return store.get(email);
-      }).then(function (row) {
-        if (!row) throw new Error('Аккаунт не найден');
-        if (patch && patch.name) row.name = String(patch.name).trim();
-        return tx('users', 'readwrite', function (store) {
-          return store.put(row);
-        }).then(function () {
-          session.user = localUser(row);
-          writeSession(session);
-          return session.user;
-        });
-      });
-    },
-
-    pullProgress: function () {
-      var session = readSession();
-      if (!session) return fail('Нужен вход');
-      return tx('progress', 'readonly', function (store) {
-        return store.get(session.user.email);
-      }).then(function (row) {
-        return { gamify: (row && row.gamify) || null, watch: (row && row.watch) || null };
-      });
-    },
-
-    pushProgress: function (progress) {
-      var session = readSession();
-      if (!session) return fail('Нужен вход');
-      var row = {
-        email: session.user.email,
-        gamify: progress.gamify || null,
-        watch: progress.watch || null,
-        updatedAt: Date.now()
+  function localSignUp(data) {
+    var email = String(data.email).trim().toLowerCase();
+    return store('users', 'readonly', function (s) { return s.get(email); }).then(function (found) {
+      if (found) throw new Error('Такая почта уже зарегистрирована');
+      return hashPassword(data.password);
+    }).then(function (creds) {
+      var user = {
+        email: email,
+        id: email,
+        name: String(data.name).trim(),
+        salt: creds.salt,
+        hash: creds.hash,
+        createdAt: nowIso()
       };
-      return tx('progress', 'readwrite', function (store) {
-        return store.put(row);
-      }).then(function () {
-        return session.user;
+      return store('users', 'readwrite', function (s) { return s.put(user); }).then(function () {
+        setSession({ token: '', user: { id: email, email: email, name: user.name, provider: 'local' } });
+        return me();
       });
-    }
-  };
+    });
+  }
 
-  /* ---------------- публичный API ---------------- */
+  function localSignIn(data) {
+    var email = String(data.email).trim().toLowerCase();
+    return store('users', 'readonly', function (s) { return s.get(email); }).then(function (found) {
+      if (!found) throw new Error('Аккаунт не найден');
+      return hashPassword(data.password, found.salt).then(function (creds) {
+        if (creds.hash !== found.hash) throw new Error('Неверный пароль');
+        setSession({ token: '', user: { id: email, email: email, name: found.name, provider: 'local' } });
+        return me();
+      });
+    });
+  }
 
-  var backend = USE_SB ? supabaseBackend : localBackend;
+  /* ---------------- публичный интерфейс ---------------- */
 
-  window.AnimDB = {
-    backend: backend.name,
-    isCloud: backend.name === 'supabase',
-    me: function () {
-      var session = readSession();
-      return session && session.backend === backend.name ? session.user : null;
+  var AnimDB = {
+    backend: CLOUD ? 'supabase' : 'local',
+    isCloud: CLOUD,
+    me: me,
+
+    subscribe: function (fn) {
+      if (typeof fn === 'function') { subs.push(fn); fn(me()); }
+      return function () { subs = subs.filter(function (f) { return f !== fn; }); };
     },
+
     signUp: function (data) {
-      return backend.signUp(data);
+      try { validate(data, true); } catch (e) { return Promise.reject(e); }
+      var name = String(data.name).trim();
+      if (!CLOUD) return localSignUp(data);
+      return api('/auth/v1/signup', {
+        method: 'POST',
+        anon: true,
+        body: { email: String(data.email).trim(), password: data.password, data: { name: name } }
+      }).then(function (res) {
+        if (!res || !res.access_token) {
+          throw new Error('Аккаунт создан. Подтвердите почту по ссылке из письма и войдите.');
+        }
+        saveCloudSession(res, name);
+        return upsertProfile({}).then(me);
+      });
     },
+
     signIn: function (data) {
-      return backend.signIn(data);
+      try { validate(data, false); } catch (e) { return Promise.reject(e); }
+      if (!CLOUD) return localSignIn(data);
+      return api('/auth/v1/token?grant_type=password', {
+        method: 'POST',
+        anon: true,
+        body: { email: String(data.email).trim(), password: data.password }
+      }).then(function (res) {
+        saveCloudSession(res);
+        return upsertProfile({}).then(me);
+      });
     },
+
+    /* Вход через Google или Discord (только облачный режим). */
+    signInWith: function (provider) {
+      if (!CLOUD) return Promise.reject(new Error('Вход через сервисы работает только с облачной базой'));
+      var back = location.origin + location.pathname;
+      location.href = BASE + '/auth/v1/authorize?provider=' + encodeURIComponent(provider) +
+        '&redirect_to=' + encodeURIComponent(back);
+      return Promise.resolve(null);
+    },
+
+    resetPassword: function (email) {
+      if (!checkEmail(email)) return Promise.reject(new Error('Проверьте адрес почты'));
+      if (!CLOUD) return Promise.reject(new Error('Восстановление пароля доступно только с облачной базой'));
+      return api('/auth/v1/recover', {
+        method: 'POST',
+        anon: true,
+        body: { email: String(email).trim() }
+      }).then(function () { return true; });
+    },
+
     signOut: function () {
-      return backend.signOut();
+      if (!CLOUD) { setSession(null); return Promise.resolve(true); }
+      return api('/auth/v1/logout', { method: 'POST' })
+        .catch(function () { return null; })
+        .then(function () { setSession(null); return true; });
     },
+
     updateName: function (name) {
-      if (String(name || '').trim().length < 2) return fail('Имя короче 2 символов');
-      return backend.saveProfile({ name: String(name).trim() });
+      var user = me();
+      if (!user) return Promise.reject(new Error('Сначала войдите'));
+      var clean = String(name || '').trim();
+      if (clean.length < 2) return Promise.reject(new Error('Имя — минимум 2 символа'));
+      var s = getSession();
+      s.user.name = clean;
+      setSession(s);
+      if (!CLOUD) {
+        return store('users', 'readwrite', function (st) {
+          var req = st.get(user.email);
+          req.onsuccess = function () {
+            if (req.result) { req.result.name = clean; st.put(req.result); }
+          };
+          return req;
+        }).then(function () { return clean; });
+      }
+      return api('/auth/v1/user', { method: 'PUT', body: { data: { name: clean } } })
+        .catch(function () { return null; })
+        .then(function () { return upsertProfile({}); })
+        .then(function () { return clean; });
     },
+
+    /* Прогресс: уровни, история просмотра, списки. */
     pullProgress: function () {
-      return backend.pullProgress();
+      var user = me();
+      if (!user) return Promise.resolve(null);
+      if (!CLOUD) {
+        return store('progress', 'readonly', function (s) { return s.get(user.email); })
+          .then(function (row) { return row || null; });
+      }
+      return api('/rest/v1/profiles?id=eq.' + encodeURIComponent(user.id) + '&select=gamify,watch,lists,updated_at')
+        .then(function (rows) { return rows && rows[0] ? rows[0] : null; });
     },
-    pushProgress: function (progress) {
-      return backend.pushProgress(progress || {});
+
+    pushProgress: function (data) {
+      var user = me();
+      if (!user) return Promise.resolve(null);
+      var row = {
+        email: user.email,
+        gamify: data.gamify || null,
+        watch: data.watch || null,
+        lists: data.lists || null,
+        updated_at: nowIso()
+      };
+      if (!CLOUD) return store('progress', 'readwrite', function (s) { return s.put(row); });
+      return upsertProfile({ gamify: row.gamify, watch: row.watch, lists: row.lists });
+    },
+
+    /* Оценки тайтлов. В локальном режиме считается только своя оценка. */
+    getRating: function (titleId) {
+      var user = me();
+      if (!CLOUD) {
+        return Promise.resolve({ avg: null, count: 0, mine: null, cloud: false });
+      }
+      return api('/rest/v1/ratings?title_id=eq.' + encodeURIComponent(titleId) + '&select=value,user_id')
+        .then(function (rows) {
+          rows = rows || [];
+          var sum = 0, mine = null;
+          for (var i = 0; i < rows.length; i++) {
+            sum += Number(rows[i].value) || 0;
+            if (user && rows[i].user_id === user.id) mine = Number(rows[i].value);
+          }
+          return {
+            avg: rows.length ? Math.round((sum / rows.length) * 10) / 10 : null,
+            count: rows.length,
+            mine: mine,
+            cloud: true
+          };
+        });
+    },
+
+    setRating: function (titleId, value) {
+      var user = me();
+      if (!user) return Promise.reject(new Error('Сначала войдите'));
+      var v = Math.max(1, Math.min(10, Math.round(Number(value) || 0)));
+      if (!CLOUD) return Promise.resolve({ mine: v, cloud: false });
+      return api('/rest/v1/ratings?on_conflict=user_id,title_id', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: [{ user_id: user.id, title_id: String(titleId), value: v, updated_at: nowIso() }]
+      }).then(function () { return { mine: v, cloud: true }; });
+    },
+
+    listComments: function (titleId) {
+      if (!CLOUD) return Promise.resolve(null);
+      return api('/rest/v1/comments?title_id=eq.' + encodeURIComponent(titleId) +
+        '&select=id,user_id,name,body,created_at&order=created_at.desc&limit=100');
+    },
+
+    addComment: function (titleId, body) {
+      var user = me();
+      if (!user) return Promise.reject(new Error('Сначала войдите'));
+      if (!CLOUD) return Promise.reject(new Error('Комментарии работают только с облачной базой'));
+      var text = String(body || '').trim();
+      if (text.length < 2) return Promise.reject(new Error('Слишком короткий комментарий'));
+      if (text.length > 1000) return Promise.reject(new Error('Не больше 1000 символов'));
+      return api('/rest/v1/comments', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [{ user_id: user.id, title_id: String(titleId), name: user.name, body: text }]
+      }).then(function (rows) { return rows && rows[0] ? rows[0] : null; });
+    },
+
+    deleteComment: function (id) {
+      if (!CLOUD) return Promise.reject(new Error('Комментарии работают только с облачной базой'));
+      return api('/rest/v1/comments?id=eq.' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function () { return true; });
     }
   };
+
+  captureOauthRedirect();
+  window.AnimDB = AnimDB;
 })();
