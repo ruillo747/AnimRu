@@ -21,7 +21,7 @@
     var button = $('themeBtn');
     if (button) {
       button.textContent = theme === 'light' ? '☾' : '☀';
-      button.title = theme === 'light' ? 'Тёмная тема' : 'Светлая тема';
+      button.title = theme === 'light' ? 'Тẹ́мная тема' : 'Светлая тема';
     }
   }
 
@@ -60,7 +60,7 @@
       if (input) { event.preventDefault(); input.focus(); input.select(); }
       return;
     }
-    var routes = { h: '#/', c: '#/catalog', t: '#/top', p: '#/profile', r: '#/random' };
+    var routes = { h: '#/', c: '#/catalog', t: '#/top', p: '#/profile', r: '#/random', s: '#/schedule' };
     var route = routes[event.key.toLowerCase()];
     if (route) { location.hash = route; }
   });
@@ -72,6 +72,24 @@
       navigator.serviceWorker.register('sw.js').catch(function () {});
     });
   }
+
+  /* ---------------- подключение модулей офлайна и расписания ---------------- */
+
+  (function bootstrapModules() {
+    if (!document.getElementById('extras-css')) {
+      var style = document.createElement('style');
+      style.id = 'extras-css';
+      style.textContent = '.src-bar{margin-top:12px}@media (max-width:900px){.src-bar{margin-top:8px}}';
+      document.head.appendChild(style);
+    }
+    ['offline.js', 'schedule.js'].forEach(function (file) {
+      if (document.querySelector('script[src*="' + file + '"]')) return;
+      var script = document.createElement('script');
+      script.src = file + '?v=9';
+      script.defer = true;
+      document.body.appendChild(script);
+    });
+  })();
 
   /* ---------------- плеер: пропуск заставки и субтитры ---------------- */
 
