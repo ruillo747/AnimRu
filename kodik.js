@@ -1,7 +1,7 @@
 /* AnimRu: вторая студия — Kodik.
-   Токен не требует регистрации: берём из config.js → из localStorage → из открытого списка → встроенные.
-   Дата-API блокирует CORS, поэтому есть fallback на публичные прокси.
-   Фрейм идёт в sandbox: рекламные попапы и редиректы вкладки блокируются браузером. */
+   Токен подбирается автоматически: config.js → localStorage → открытый список → встроенные.
+   Data-API блокирует CORS, поэтому есть fallback на публичные прокси.
+   Совпадение тайтла ищем по названию + году + числу серий, иначе Kodik отдаёт чужое аниме. */
 (function () {
   'use strict';
 
@@ -17,7 +17,7 @@
     function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); }
   ];
 
-  /* без allow-popups и allow-top-navigation: фрейм не может открыть вкладку или увести страницу на рекламу */
+  /* без allow-popups и allow-top-navigation: фрейм не откроет рекламную вкладку и не уведёт страницу */
   var SANDBOX = 'allow-same-origin allow-scripts allow-forms allow-presentation allow-orientation-lock';
 
   var LS_SOURCE = 'animru:source';
@@ -29,7 +29,8 @@
     candidates: null,
     materials: null,
     materialsFor: null,
-    picked: null,
+    picked: 0,
+    weak: false,
     loading: false
   };
   var els = {};
@@ -45,11 +46,15 @@
 
   function absUrl(u) {
     if (!u) return '';
-    if (u.indexOf('//') === 0) return 'https:' + u;
-    return u;
+    return u.indexOf('//') === 0 ? 'https:' + u : u;
   }
 
-  /* запрос напрямую, при CORS-ошибке — через прокси */
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   function smartFetch(url) {
     var attempts = [function () { return fetch(url); }].concat(
       PROXIES.map(function (make) {
@@ -84,7 +89,7 @@
     });
   }
 
-  /* токены из открытого списка хранятся обфусцированно: реверс → части по '==' → base64 */
+  /* токены открытого списка лежат обфусцированно: реверс → части по '==' → base64 */
   function decodeToken(s) {
     var rev = String(s).split('').reverse().join('');
     var out = '';
@@ -128,7 +133,6 @@
       });
   }
 
-  /* первый токен, который проходит проверку на /translations */
   function getToken() {
     if (state.token) return Promise.resolve(state.token);
 
@@ -149,51 +153,23 @@
     });
   }
 
-  function searchUrl(token, query) {
-    return (
-      KODIK_API + '/search?token=' + encodeURIComponent(token) +
-      '&limit=24&with_material_data=true&with_episodes_data=true&title=' +
-      encodeURIComponent(query)
-    );
-  }
+  /* ---------------- данные открытого тайтла ---------------- */
 
-  function searchMaterials(query) {
-    return getToken().then(function (token) {
-      return apiJson(searchUrl(token, query)).catch(function (err) {
-        if (!err.badToken) throw err;
-        state.token = null;
-        return getToken().then(function (fresh) { return apiJson(searchUrl(fresh, query)); });
-      });
-    }).then(function (data) {
-      var results = (data && data.results) || [];
-      var seen = {};
-      return results
-        .filter(function (m) { return m && m.link; })
-        .map(function (m) {
-          return {
-            link: absUrl(m.link),
-            label: (m.translation && m.translation.title) || m.title || 'Озвучка',
-            kind: m.translation && m.translation.type === 'subtitles' ? 'субтитры' : 'озвучка',
-            episodes: m.episodes_count || null
-          };
-        })
-        .filter(function (m) {
-          var key = m.label + '|' + m.link;
-          if (seen[key]) return false;
-          seen[key] = 1;
-          return true;
-        });
-    });
-  }
-
-  function titleName() {
-    var node = $('tName');
+  function textOf(id) {
+    var node = $(id);
     return node ? node.textContent.trim() : '';
   }
 
-  function titleNameEn() {
-    var node = $('tNameEn');
-    return node ? node.textContent.trim() : '';
+  function titleYear() {
+    var m = textOf('tMeta').match(/\b(?:19|20)\d{2}\b/);
+    return m ? m[0] : '';
+  }
+
+  function titleEpisodesTotal() {
+    var m = textOf('tMeta').match(/(\d+)\s*эп\./);
+    if (m) return parseInt(m[1], 10);
+    var list = document.querySelectorAll('#episodes .ep-btn');
+    return list.length || 0;
   }
 
   function currentEpisode() {
@@ -202,11 +178,132 @@
     return isFinite(num) && num > 0 ? num : 1;
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  /* ---------------- подбор совпадения ---------------- */
+
+  function norm(s) {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/[ёë]/g, 'е')
+      .replace(/\b(tv|сезон|season)\b/g, ' ')
+      .replace(/[^a-zа-я0-9]+/g, ' ')
+      .trim();
+  }
+
+  function sameTitle(a, b) {
+    var x = norm(a);
+    var y = norm(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    return x.length > 6 && y.length > 6 && (x.indexOf(y) === 0 || y.indexOf(x) === 0);
+  }
+
+  function score(item, want) {
+    var points = 0;
+
+    if (sameTitle(item.title, want.ru) || sameTitle(item.titleOrig, want.ru)) points += 3;
+    else if (sameTitle(item.title, want.en) || sameTitle(item.titleOrig, want.en)) points += 3;
+    else if (norm(item.title).indexOf(norm(want.ru)) >= 0 && norm(want.ru).length > 8) points += 1;
+
+    if (want.year && item.year && String(item.year) === String(want.year)) points += 2;
+    else if (want.year && item.year && Math.abs(item.year - Number(want.year)) === 1) points += 1;
+
+    if (want.total && item.episodes) {
+      var diff = Math.abs(item.episodes - want.total);
+      if (diff === 0) points += 2;
+      else if (diff <= 2) points += 1;
+      else if (item.episodes < want.total / 2) points -= 2;
+    }
+
+    return points;
+  }
+
+  function searchUrl(token, params) {
+    var query = ['token=' + encodeURIComponent(token), 'limit=50', 'with_material_data=true', 'with_episodes_data=true'];
+    Object.keys(params).forEach(function (key) {
+      if (params[key]) query.push(key + '=' + encodeURIComponent(params[key]));
+    });
+    return KODIK_API + '/search?' + query.join('&');
+  }
+
+  function rawSearch(params) {
+    return getToken().then(function (token) {
+      return apiJson(searchUrl(token, params)).catch(function (err) {
+        if (!err.badToken) throw err;
+        state.token = null;
+        return getToken().then(function (fresh) { return apiJson(searchUrl(fresh, params)); });
+      });
+    }).then(function (data) {
+      return ((data && data.results) || []).filter(function (m) { return m && m.link; }).map(function (m) {
+        var material = m.material_data || {};
+        return {
+          link: absUrl(m.link),
+          title: m.title || material.title || '',
+          titleOrig: m.title_orig || material.title_en || '',
+          year: m.year || material.year || null,
+          season: m.last_season || m.season || null,
+          episodes: m.episodes_count || material.episodes_total || null,
+          label: (m.translation && m.translation.title) || 'Озвучка',
+          kind: m.translation && m.translation.type === 'subtitles' ? 'субтитры' : 'озвучка'
+        };
+      });
     });
   }
+
+  function findMaterials() {
+    var want = {
+      ru: textOf('tName'),
+      en: textOf('tNameEn'),
+      year: titleYear(),
+      total: titleEpisodesTotal()
+    };
+    if (!want.ru && !want.en) return Promise.resolve({ list: [], weak: false, want: want });
+
+    var probes = [];
+    if (want.ru) probes.push({ title: want.ru, year: want.year });
+    if (want.en) probes.push({ title_orig: want.en, year: want.year });
+    if (want.ru) probes.push({ title: want.ru });
+    if (want.en) probes.push({ title_orig: want.en });
+
+    return probes
+      .reduce(function (chain, params) {
+        return chain.then(function (acc) {
+          if (acc.best >= 5) return acc;
+          return rawSearch(params)
+            .catch(function () { return []; })
+            .then(function (found) {
+              found.forEach(function (item) {
+                item.score = score(item, want);
+                if (item.score > acc.best) acc.best = item.score;
+                acc.all.push(item);
+              });
+              return acc;
+            });
+        });
+      }, Promise.resolve({ all: [], best: -99 }))
+      .then(function (acc) {
+        var seen = {};
+        var unique = acc.all.filter(function (item) {
+          var key = item.link;
+          if (seen[key]) return false;
+          seen[key] = 1;
+          return true;
+        });
+
+        var strong = unique.filter(function (item) { return item.score >= 4; });
+        var weak = false;
+        var list = strong;
+
+        if (!list.length) {
+          list = unique.filter(function (item) { return item.score >= 2; });
+          weak = list.length > 0;
+        }
+
+        list.sort(function (a, b) { return b.score - a.score; });
+        return { list: list, weak: weak, want: want };
+      });
+  }
+
+  /* ---------------- интерфейс ---------------- */
 
   function build() {
     var main = document.querySelector('#view-title .watch-main');
@@ -250,13 +347,13 @@
       if (!state.materials || !state.materials[idx]) return;
       state.picked = idx;
       renderVoices();
-      mountFrame();
+      mountFrame(true);
     });
 
     var episodes = $('episodes');
     if (episodes) {
       episodes.addEventListener('click', function () {
-        if (state.source === 'kodik') setTimeout(mountFrame, 80);
+        if (state.source === 'kodik') setTimeout(function () { mountFrame(true); }, 80);
       });
     }
   }
@@ -265,6 +362,16 @@
     if (!els.note) return;
     els.note.textContent = text || '';
     els.note.hidden = !text;
+  }
+
+  function matchNote() {
+    var item = (state.materials || [])[state.picked] || null;
+    if (!item) return;
+    var bits = [item.title || item.titleOrig];
+    if (item.year) bits.push(item.year + ' г.');
+    if (item.episodes) bits.push(item.episodes + ' эп.');
+    var text = 'Kodik: ' + bits.filter(Boolean).join(' · ');
+    note(state.weak ? text + ' — точного совпадения нет, проверьте название' : text);
   }
 
   function renderVoices() {
@@ -280,7 +387,8 @@
       '<span class="src-label">Озвучка</span>' +
       list.map(function (m, i) {
         return (
-          '<button class="src-btn' + (i === state.picked ? ' active' : '') + '" type="button" data-voice="' + i + '">' +
+          '<button class="src-btn' + (i === state.picked ? ' active' : '') + '" type="button"' +
+          ' data-voice="' + i + '" title="' + escapeHtml((m.title || '') + (m.year ? ' · ' + m.year : '')) + '">' +
           escapeHtml(m.label) +
           '</button>'
         );
@@ -311,66 +419,63 @@
 
   /* свои серии и озвучки уже есть в интерфейсе, внутренние селекторы фрейма прячем */
   function frameUrl(item) {
-    var url = item.link;
-    var sep = url.indexOf('?') === -1 ? '?' : '&';
-    return url + sep + 'episode=' + currentEpisode() + '&hide_selectors=true';
+    var parts = ['episode=' + currentEpisode(), 'season=' + (item.season || 1), 'hide_selectors=true'];
+    var sep = item.link.indexOf('?') === -1 ? '?' : '&';
+    return item.link + sep + parts.join('&');
   }
 
-  function mountFrame() {
+  function mountFrame(force) {
     if (state.source !== 'kodik' || !els.frame) return;
-    var item = (state.materials || [])[state.picked || 0];
+    var item = (state.materials || [])[state.picked];
     if (!item) return;
+
     var next = frameUrl(item);
-    if (els.frame.getAttribute('src') !== next) {
+    if (force || els.frame.getAttribute('src') !== next) {
       els.frame.setAttribute('sandbox', SANDBOX);
       els.frame.src = next;
     }
-    note('');
+    matchNote();
   }
 
   function load() {
     if (state.source !== 'kodik' || state.loading) return;
 
-    var key = titleName();
+    var key = textOf('tName') + '|' + currentEpisodeKey();
     if (state.materialsFor === key && state.materials && state.materials.length) {
       renderVoices();
-      mountFrame();
+      mountFrame(false);
       return;
     }
-
-    var queries = [key, titleNameEn()].filter(Boolean);
-    if (!queries.length) return;
 
     state.loading = true;
     note('Ищем озвучки в Kodik…');
     if (els.frame) els.frame.removeAttribute('src');
 
-    queries
-      .reduce(function (chain, query) {
-        return chain.then(function (found) {
-          if (found && found.length) return found;
-          return searchMaterials(query).catch(function () { return []; });
-        });
-      }, Promise.resolve([]))
-      .then(function (list) {
+    findMaterials()
+      .then(function (res) {
         state.loading = false;
-        state.materials = list;
+        state.materials = res.list;
         state.materialsFor = key;
+        state.weak = res.weak;
         state.picked = 0;
 
-        if (!list.length) {
+        if (!res.list.length) {
           renderVoices();
-          note('Kodik не нашёл это аниме или источник недоступен. Попробуйте студию Anilibria.');
+          note('Kodik не нашёл это аниме. Попробуйте студию Anilibria.');
           return;
         }
 
         renderVoices();
-        mountFrame();
+        mountFrame(true);
       })
       .catch(function () {
         state.loading = false;
         note('Kodik недоступен. Попробуйте студию Anilibria.');
       });
+  }
+
+  function currentEpisodeKey() {
+    return titleYear() + '|' + titleEpisodesTotal();
   }
 
   function setSource(id) {
@@ -397,10 +502,12 @@
     build();
     if (!els.bar) return;
 
-    if (state.materialsFor && state.materialsFor !== titleName()) {
+    var key = textOf('tName') + '|' + currentEpisodeKey();
+    if (state.materialsFor && state.materialsFor !== key) {
       state.materials = null;
       state.materialsFor = null;
       state.picked = 0;
+      state.weak = false;
       if (els.frame) els.frame.src = 'about:blank';
       renderVoices();
     }
@@ -415,12 +522,12 @@
   state.source = lsGet(LS_SOURCE) === 'kodik' ? 'kodik' : 'anilibria';
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { setTimeout(onRoute, 400); });
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(onRoute, 500); });
   } else {
-    setTimeout(onRoute, 400);
+    setTimeout(onRoute, 500);
   }
 
-  window.addEventListener('hashchange', function () { setTimeout(onRoute, 500); });
+  window.addEventListener('hashchange', function () { setTimeout(onRoute, 600); });
 
   window.AnimKodik = {
     set: setSource,
