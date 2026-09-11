@@ -1,15 +1,18 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0f1114">
-<meta name="description" content="AnimRu — аниме онлайн: онгоинги, новые серии, топ, каталог с фильтрами и прогресс просмотра.">
+<meta name="theme-color" content="#0b0d12">
+<meta name="description" content="AnimRu — аниме онлайн: онгоинги, новые серии, топ, каталог с фильтрами, списки и прогресс просмотра.">
 <title>AnimRu — аниме онлайн</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://anilibria.top">
 </head>
 <body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
 <header class="topbar">
   <div class="wrap topbar-inner">
     <a href="#/" class="logo" aria-label="AnimRu">Anim<span>Ru</span></a>
@@ -24,7 +27,7 @@
     <div class="search-wrap">
       <form class="search" id="searchForm" role="search">
         <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8L19 20.5l1.5-1.5-5-5Zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14Z"/></svg>
-        <input type="search" id="searchInput" placeholder="Поиск аниме" autocomplete="off" aria-label="Поиск">
+        <input type="search" id="searchInput" placeholder="Поиск аниме · /" autocomplete="off" aria-label="Поиск">
       </form>
       <div id="suggestBox" class="suggest" hidden></div>
     </div>
@@ -35,6 +38,8 @@
     </a>
 
     <button class="acc-btn" id="accountBtn" type="button">Войти</button>
+
+    <button class="icon-btn theme-btn" id="themeBtn" type="button" aria-label="Сменить тему">☀</button>
 
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Меню" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -280,6 +285,12 @@
       <button class="icon-btn" type="button" data-auth-close="1" aria-label="Закрыть">×</button>
     </div>
 
+    <div class="auth-oauth" id="authOauth" hidden>
+      <button class="btn btn-ghost" type="button" data-oauth="google">Войти через Google</button>
+      <button class="btn btn-ghost" type="button" data-oauth="discord">Войти через Discord</button>
+      <p class="auth-or"><span>или по почте</span></p>
+    </div>
+
     <form id="authForm" data-mode="signin" novalidate>
       <label class="field" id="authNameRow" hidden>
         <span class="f-label">Имя</span>
@@ -304,6 +315,9 @@
       <span id="authSwitchHint">Нет аккаунта?</span>
       <button class="link-btn" type="button" id="authSwitch">Зарегистрироваться</button>
     </p>
+    <p class="auth-switch">
+      <button class="link-btn" type="button" id="authForgot">Забыли пароль?</button>
+    </p>
   </div>
 </div>
 
@@ -312,14 +326,17 @@
 <footer class="foot">
   <div class="wrap">
     <p>Данные: Anilibria API v1. Проект некоммерческий, видео размещено на стороне источника.</p>
+    <p class="muted small">Горячие клавиши: / — поиск, H — главная, C — каталог, T — топ, P — профиль, R — случайное.</p>
   </div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
-<script src="config.js?v=4"></script>
-<script src="db.js?v=4"></script>
-<script src="gamify.js?v=4"></script>
-<script src="app.js?v=4"></script>
-<script src="auth.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="db.js?v=5"></script>
+<script src="gamify.js?v=5"></script>
+<script src="app.js?v=5"></script>
+<script src="auth.js?v=5"></script>
+<script src="social.js?v=5"></script>
+<script src="extras.js?v=5"></script>
 </body>
 </html>
