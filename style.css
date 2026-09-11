@@ -703,6 +703,7 @@ img { display: block; max-width: 100%; }
   outline: 0;
 }
 .player video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.player.hide-ui { cursor: none; }
 
 .p-loader {
   position: absolute;
@@ -723,6 +724,7 @@ img { display: block; max-width: 100%; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* большая кнопка видна только на паузе: класс playing ставит app.js */
 .p-bigplay {
   position: absolute;
   top: 50%;
@@ -741,9 +743,22 @@ img { display: block; max-width: 100%; }
   color: var(--accent-ink);
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  transition: opacity .15s, transform .15s;
 }
 .p-bigplay svg { width: 30px; height: 30px; display: block; }
 .p-bigplay:hover { filter: brightness(1.08); }
+.player.playing .p-bigplay {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(.82);
+}
+
+/* иконка play/pause в панели переключается по состоянию плеера, без опоры на атрибут hidden */
+.player.playing #pPlay .i-play,
+.player:not(.playing) #pPlay .i-pause { display: none !important; }
+.player.playing #pPlay .i-pause,
+.player:not(.playing) #pPlay .i-play { display: block !important; }
 
 .p-toast, .p-skip {
   position: absolute;
@@ -767,16 +782,13 @@ img { display: block; max-width: 100%; }
   z-index: 3;
   padding: 18px 12px 8px;
   background: rgba(0, 0, 0, .72);
-  opacity: 0;
-  pointer-events: none;
+  opacity: 1;
   transition: opacity .15s;
 }
+/* панель скрывается только во время проигрывания без активности: класс hide-ui ставит app.js */
+.player.hide-ui .p-controls { opacity: 0; pointer-events: none; }
 .player:hover .p-controls,
-.player:focus-within .p-controls,
-.player.show-ui .p-controls { opacity: 1; pointer-events: auto; }
-@media (hover: none) {
-  .p-controls { opacity: 1; pointer-events: auto; }
-}
+.player:focus-within .p-controls { opacity: 1; pointer-events: auto; }
 
 .p-seek { position: relative; padding: 8px 0; cursor: pointer; }
 .p-seek-track { position: relative; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .25); }
