@@ -790,7 +790,8 @@ img { display: block; max-width: 100%; }
 .player:hover .p-controls,
 .player:focus-within .p-controls { opacity: 1; pointer-events: auto; }
 
-.p-seek { position: relative; padding: 8px 0; cursor: pointer; }
+/* поле слева и справа, чтобы круглый ползунок не выходил за полосу */
+.p-seek { position: relative; padding: 8px 7px; cursor: pointer; }
 .p-seek-track { position: relative; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .25); }
 .p-buffer { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 3px; background: rgba(255, 255, 255, .35); }
 .p-played { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 3px; background: var(--accent); }
@@ -832,6 +833,7 @@ img { display: block; max-width: 100%; }
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
+  flex: none;
 }
 .p-btn svg { width: 20px; height: 20px; display: block; }
 .p-btn:hover { background: rgba(255, 255, 255, .16); color: var(--accent); }
@@ -840,7 +842,7 @@ img { display: block; max-width: 100%; }
 .p-time { font-size: 12.5px; color: rgba(255, 255, 255, .85); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .p-volume { display: flex; align-items: center; gap: 6px; }
 .p-volume input { width: 76px; accent-color: var(--accent); }
-.p-select { position: relative; }
+.p-select { position: relative; flex: none; }
 
 .p-menu {
   position: absolute;
@@ -951,6 +953,41 @@ html[data-theme='light'] .modal-backdrop { background: rgba(20, 20, 25, .38); }
   .rail > * { flex-basis: 144px; }
 }
 
+/* на тач-устройствах нет наведения: панель всегда активна, касания не подсвечивают кнопки */
+@media (hover: none) {
+  .player.hide-ui { cursor: auto; }
+  .player.hide-ui .p-controls { opacity: 1; pointer-events: auto; }
+  .p-btn:hover { background: none; color: #fff; }
+  .p-bigplay:hover { filter: none; }
+}
+
+/* плеер на телефоне */
+@media (max-width: 700px) {
+  .p-controls { padding: 10px 6px 6px; }
+
+  /* две строки вместо одной сжатой: кнопки больше не обрезаются справа */
+  .p-row { flex-wrap: wrap; row-gap: 2px; column-gap: 2px; }
+  .p-btn { min-width: 42px; height: 42px; padding: 0 4px; }
+  .p-btn svg { width: 22px; height: 22px; }
+  .p-text { font-size: 13px; }
+
+  .p-seek { padding: 10px 8px; }
+  .p-seek-track { height: 6px; }
+  .p-knob { width: 14px; height: 14px; right: -7px; }
+
+  .p-volume { order: 1; }
+  .p-time { display: inline; order: 2; margin-left: 4px; font-size: 12px; }
+  .p-spacer { order: 3; }
+  #pPip { display: none; }
+
+  .p-menu { bottom: calc(100% + 6px); min-width: 112px; max-height: 44vh; overflow: auto; }
+  .p-toast { top: 10px; font-size: 12.5px; padding: 6px 11px; }
+  .p-skip { right: 10px; bottom: 104px; }
+
+  .watch-bar { gap: 8px; }
+  .episodes { max-height: 52vh; }
+}
+
 @media (max-width: 620px) {
   .lvl-chip { display: none; }
   .acc-btn { max-width: 96px; padding: 0 10px; }
@@ -960,7 +997,24 @@ html[data-theme='light'] .modal-backdrop { background: rgba(20, 20, 25, .38); }
   .poster { max-width: 190px; }
   .p-bigplay { width: 62px; height: 62px; }
   .p-volume input { display: none; }
-  .p-time { display: none; }
+}
+
+/* узкие телефоны: плеер во всю ширину экрана */
+@media (max-width: 520px) {
+  .watch { gap: 16px; }
+  .player { border-left: 0; border-right: 0; border-radius: 0; margin: 0 -18px; }
+  .p-bigplay { width: 56px; height: 56px; }
+  .p-bigplay svg { width: 24px; height: 24px; }
+  .p-time { font-size: 11.5px; }
+}
+
+/* горизонтальный телефон: панель компактнее, видео не уезжает за экран */
+@media (max-height: 480px) and (orientation: landscape) {
+  .p-row { flex-wrap: nowrap; }
+  .p-btn { min-width: 36px; height: 36px; }
+  .p-controls { padding: 8px 8px 4px; }
+  .p-bigplay { width: 52px; height: 52px; }
+  .episodes { max-height: 40vh; }
 }
 
 @media (prefers-reduced-motion: reduce) {
