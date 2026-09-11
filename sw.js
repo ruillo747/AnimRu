@@ -1,24 +1,27 @@
-/* AnimRu service worker: оболочка офлайн, медиа никогда не кэшируется. */
+/* AnimRu service worker: оболочка доступна офлайн, медиа никогда не кэшируется. */
 
-const CACHE = 'animru-v6'
+const CACHE = 'animru-v7'
 
 const SHELL = [
   './',
   'index.html',
-  'style.css?v=6',
-  'config.js?v=6',
-  'db.js?v=6',
-  'gamify.js?v=6',
-  'app.js?v=6',
-  'auth.js?v=6',
-  'social.js?v=6',
-  'extras.js?v=6',
+  'style.css?v=7',
+  'config.js?v=7',
+  'db.js?v=7',
+  'gamify.js?v=7',
+  'app.js?v=7',
+  'auth.js?v=7',
+  'social.js?v=7',
+  'extras.js?v=7',
   'manifest.webmanifest',
 ]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()),
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(SHELL))
+      .then(() => self.skipWaiting()),
   )
 })
 
@@ -36,6 +39,7 @@ function isMedia(url) {
   return url.hostname.includes('libria')
 }
 
+/* Сначала сеть, кэш — только запасной вариант. Иначе обновлённые стили не доезжают до браузера. */
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -48,22 +52,21 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
-  if (isMedia(url)) return
   if (url.origin !== self.location.origin) return
+  if (isMedia(url)) return
 
   event.respondWith(
-    caches.match(req).then((hit) => {
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.ok && res.type === 'basic') {
-            const copy = res.clone()
-            caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {})
-          }
-          return res
-        })
-        .catch(() => hit || caches.match('index.html'))
-
-      return hit || network
-    }),
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok && res.type === 'basic') {
+          const copy = res.clone()
+          caches
+            .open(CACHE)
+            .then((cache) => cache.put(req, copy))
+            .catch(() => {})
+        }
+        return res
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('index.html'))),
   )
 })
