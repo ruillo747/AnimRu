@@ -6,9 +6,8 @@
 <meta name="theme-color" content="#0f1114">
 <meta name="description" content="AnimRu — аниме онлайн: онгоинги, новые серии, топ, каталог с фильтрами и прогресс просмотра.">
 <title>AnimRu — аниме онлайн</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 <link rel="preconnect" href="https://anilibria.top">
-<link rel="preconnect" href="https://cache.libria.fun">
 </head>
 <body>
 <header class="topbar">
@@ -34,6 +33,8 @@
       <span class="lvl-num" id="lvlChipNum">1</span>
       <span class="lvl-bar"><i id="lvlChipBar"></i></span>
     </a>
+
+    <button class="acc-btn" id="accountBtn" type="button">Войти</button>
 
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Меню" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -127,6 +128,11 @@
     </div>
 
     <section class="row-block">
+      <div class="section-head"><h2>Аккаунт</h2></div>
+      <div class="acc-box" id="accountBox"></div>
+    </section>
+
+    <section class="row-block">
       <div class="section-head">
         <h2>Квесты</h2>
         <span class="muted small" id="questReset"></span>
@@ -144,7 +150,7 @@
 
     <section class="row-block">
       <div class="section-head"><h2>Данные прогресса</h2></div>
-      <p class="muted small">Прогресс, уровни и предметы хранятся только в этом браузере — аккаунтов и сервера у сайта нет.</p>
+      <p class="muted small">Без входа прогресс лежит только в этом браузере. После входа он сохраняется в базу аккаунта.</p>
       <div class="pf-actions">
         <button class="btn btn-ghost" id="pfExport">Скопировать сохранение</button>
         <button class="btn btn-ghost" id="pfReset">Сбросить прогресс</button>
@@ -265,6 +271,42 @@
   </section>
 </main>
 
+<!-- ============ AUTH MODAL ============ -->
+<div class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle" hidden>
+  <div class="modal-backdrop" data-auth-close="1"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="authTitle">Вход</h2>
+      <button class="icon-btn" type="button" data-auth-close="1" aria-label="Закрыть">×</button>
+    </div>
+
+    <form id="authForm" data-mode="signin" novalidate>
+      <label class="field" id="authNameRow" hidden>
+        <span class="f-label">Имя</span>
+        <input class="f-input" type="text" id="authName" autocomplete="nickname" maxlength="32">
+      </label>
+
+      <label class="field">
+        <span class="f-label">Почта</span>
+        <input class="f-input" type="email" id="authEmail" autocomplete="email" required>
+      </label>
+
+      <label class="field">
+        <span class="f-label">Пароль (от 8 символов)</span>
+        <input class="f-input" type="password" id="authPassword" autocomplete="current-password" required minlength="8">
+      </label>
+
+      <p class="auth-error" id="authError" role="alert" hidden></p>
+      <button class="btn auth-submit" type="submit" id="authSubmit">Войти</button>
+    </form>
+
+    <p class="auth-switch">
+      <span id="authSwitchHint">Нет аккаунта?</span>
+      <button class="link-btn" type="button" id="authSwitch">Зарегистрироваться</button>
+    </p>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <footer class="foot">
@@ -274,7 +316,10 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
-<script src="gamify.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="config.js?v=4"></script>
+<script src="db.js?v=4"></script>
+<script src="gamify.js?v=4"></script>
+<script src="app.js?v=4"></script>
+<script src="auth.js?v=4"></script>
 </body>
 </html>
