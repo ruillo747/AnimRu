@@ -1,7 +1,8 @@
 /* AnimRu: вторая студия — Kodik.
    Токен подбирается автоматически: config.js → localStorage → открытый список → встроенные.
    Data-API блокирует CORS, поэтому есть fallback на публичные прокси.
-   Совпадение тайтла ищем по названию + году + числу серий, иначе Kodik отдаёт чужое аниме. */
+   Совпадение тайтла ищем по названию + году + числу серий, иначе Kodik отдаёт чужое аниме.
+   Стили блока озвучек живут здесь же и опираются на общие токены темы из style.css. */
 (function () {
   'use strict';
 
@@ -19,6 +20,31 @@
 
   /* без allow-popups и allow-top-navigation: фрейм не откроет рекламную вкладку и не уведёт страницу */
   var SANDBOX = 'allow-same-origin allow-scripts allow-forms allow-presentation allow-orientation-lock';
+
+  var AD_NOTE = 'Реклама внутри этого плеера — от Kodik. Плеер встроен с их сайта, убрать её со своей стороны мы не можем. Переходы по рекламе заблокированы.';
+
+  var CSS = [
+    '.kodik-wrap{display:grid;gap:12px}',
+    '.kodik-ad-note{margin:0;font-size:11.5px;line-height:1.45;color:var(--dim);opacity:.72}',
+    '.kv-panel{padding:14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}',
+    '.kv-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}',
+    '.kv-title{font-size:15px;font-weight:600}',
+    '.kv-count{font-size:12.5px;color:var(--dim)}',
+    '.kv-list{display:grid;gap:8px;max-height:42vh;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}',
+    '.kv-list::-webkit-scrollbar{width:8px;height:8px}',
+    '.kv-list::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}',
+    '.kv-btn{display:flex;align-items:baseline;gap:10px;width:100%;padding:9px 11px;border:1px solid var(--line);' +
+      'border-radius:var(--r-sm);background:var(--surface-2);color:var(--text);font:inherit;font-size:13.5px;' +
+      'text-align:left;cursor:pointer}',
+    '.kv-btn:hover{border-color:var(--accent)}',
+    '.kv-btn.active{border-color:var(--accent);background:var(--accent-soft)}',
+    '.kv-num{flex:none;min-width:22px;font-weight:700;color:var(--dim)}',
+    '.kv-btn.active .kv-num{color:var(--accent)}',
+    '.kv-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}',
+    '.kv-kind{flex:none;font-size:11px;color:var(--dim)}',
+    '@media (min-width:901px){.kv-list{grid-template-columns:repeat(auto-fill,minmax(216px,1fr));max-height:34vh}}',
+    '@media (max-width:520px){.kv-list{max-height:36vh}.kodik-ad-note{font-size:11px}}'
+  ].join('');
 
   var LS_SOURCE = 'animru:source';
   var LS_TOKEN = 'animru:kodik-token';
@@ -53,6 +79,14 @@
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  function injectCss() {
+    if ($('kodik-css')) return;
+    var tag = document.createElement('style');
+    tag.id = 'kodik-css';
+    tag.textContent = CSS;
+    document.head.appendChild(tag);
   }
 
   function smartFetch(url) {
@@ -256,7 +290,7 @@
       year: titleYear(),
       total: titleEpisodesTotal()
     };
-    if (!want.ru && !want.en) return Promise.resolve({ list: [], weak: false, want: want });
+    if (!want.ru && !want.en) return Promise.resolve({ list: [], weak: false });
 
     var probes = [];
     if (want.ru) probes.push({ title: want.ru, year: want.year });
@@ -283,15 +317,13 @@
       .then(function (acc) {
         var seen = {};
         var unique = acc.all.filter(function (item) {
-          var key = item.link;
-          if (seen[key]) return false;
-          seen[key] = 1;
+          if (seen[item.link]) return false;
+          seen[item.link] = 1;
           return true;
         });
 
-        var strong = unique.filter(function (item) { return item.score >= 4; });
+        var list = unique.filter(function (item) { return item.score >= 4; });
         var weak = false;
-        var list = strong;
 
         if (!list.length) {
           list = unique.filter(function (item) { return item.score >= 2; });
@@ -299,7 +331,7 @@
         }
 
         list.sort(function (a, b) { return b.score - a.score; });
-        return { list: list, weak: weak, want: want };
+        return { list: list, weak: weak };
       });
   }
 
@@ -309,6 +341,8 @@
     var main = document.querySelector('#view-title .watch-main');
     var player = $('playerRoot');
     if (!main || !player || els.bar) return;
+
+    injectCss();
 
     var bar = document.createElement('div');
     bar.className = 'src-bar';
@@ -321,27 +355,33 @@
     wrap.className = 'kodik-wrap';
     wrap.hidden = true;
     wrap.innerHTML =
-      '<div class="src-bar kodik-voices" hidden></div>' +
       '<iframe class="kodik-frame" title="Kodik" allow="autoplay; fullscreen; encrypted-media; picture-in-picture"' +
       ' allowfullscreen sandbox="' + SANDBOX + '"></iframe>' +
-      '<p class="kodik-note" hidden></p>';
+      '<p class="kodik-note" hidden></p>' +
+      '<section class="kv-panel" hidden>' +
+      '<div class="kv-head"><h3 class="kv-title">Озвучка</h3><span class="kv-count"></span></div>' +
+      '<div class="kv-list"></div>' +
+      '</section>' +
+      '<p class="kodik-ad-note">' + escapeHtml(AD_NOTE) + '</p>';
 
     main.insertBefore(bar, player);
     main.insertBefore(wrap, player.nextSibling);
 
     els.bar = bar;
     els.wrap = wrap;
-    els.voices = wrap.querySelector('.kodik-voices');
     els.frame = wrap.querySelector('.kodik-frame');
     els.note = wrap.querySelector('.kodik-note');
+    els.panel = wrap.querySelector('.kv-panel');
+    els.count = wrap.querySelector('.kv-count');
+    els.list = wrap.querySelector('.kv-list');
 
     bar.addEventListener('click', function (e) {
       var btn = e.target.closest('.src-btn');
       if (btn) setSource(btn.getAttribute('data-src'));
     });
 
-    els.voices.addEventListener('click', function (e) {
-      var btn = e.target.closest('.src-btn');
+    els.list.addEventListener('click', function (e) {
+      var btn = e.target.closest('.kv-btn');
       if (!btn) return;
       var idx = parseInt(btn.getAttribute('data-voice'), 10);
       if (!state.materials || !state.materials[idx]) return;
@@ -374,25 +414,30 @@
     note(state.weak ? text + ' — точного совпадения нет, проверьте название' : text);
   }
 
+  /* список озвучек оформлен как блок серий, но стоит под плеером */
   function renderVoices() {
-    if (!els.voices) return;
+    if (!els.panel || !els.list) return;
+
     var list = state.materials || [];
     if (list.length < 2) {
-      els.voices.hidden = true;
-      els.voices.innerHTML = '';
+      els.panel.hidden = true;
+      els.list.innerHTML = '';
       return;
     }
-    els.voices.hidden = false;
-    els.voices.innerHTML =
-      '<span class="src-label">Озвучка</span>' +
-      list.map(function (m, i) {
-        return (
-          '<button class="src-btn' + (i === state.picked ? ' active' : '') + '" type="button"' +
-          ' data-voice="' + i + '" title="' + escapeHtml((m.title || '') + (m.year ? ' · ' + m.year : '')) + '">' +
-          escapeHtml(m.label) +
-          '</button>'
-        );
-      }).join('');
+
+    els.panel.hidden = false;
+    els.count.textContent = list.length + ' всего';
+    els.list.innerHTML = list.map(function (m, i) {
+      var sub = [m.title || m.titleOrig, m.year ? m.year + ' г.' : ''].filter(Boolean).join(' · ');
+      return (
+        '<button class="kv-btn' + (i === state.picked ? ' active' : '') + '" type="button" data-voice="' + i + '"' +
+        ' title="' + escapeHtml(sub) + '">' +
+        '<span class="kv-num">' + (i + 1) + '</span>' +
+        '<span class="kv-name">' + escapeHtml(m.label) + '</span>' +
+        '<span class="kv-kind">' + escapeHtml(m.kind) + '</span>' +
+        '</button>'
+      );
+    }).join('');
   }
 
   function markButtons() {
@@ -437,10 +482,14 @@
     matchNote();
   }
 
+  function titleKey() {
+    return textOf('tName') + '|' + titleYear() + '|' + titleEpisodesTotal();
+  }
+
   function load() {
     if (state.source !== 'kodik' || state.loading) return;
 
-    var key = textOf('tName') + '|' + currentEpisodeKey();
+    var key = titleKey();
     if (state.materialsFor === key && state.materials && state.materials.length) {
       renderVoices();
       mountFrame(false);
@@ -474,10 +523,6 @@
       });
   }
 
-  function currentEpisodeKey() {
-    return titleYear() + '|' + titleEpisodesTotal();
-  }
-
   function setSource(id) {
     if (id !== 'kodik' && id !== 'anilibria') return;
     if (state.source === id) return;
@@ -502,8 +547,7 @@
     build();
     if (!els.bar) return;
 
-    var key = textOf('tName') + '|' + currentEpisodeKey();
-    if (state.materialsFor && state.materialsFor !== key) {
+    if (state.materialsFor && state.materialsFor !== titleKey()) {
       state.materials = null;
       state.materialsFor = null;
       state.picked = 0;
