@@ -3,15 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0b0d12">
+<meta name="theme-color" content="#0a0a0b">
 <meta name="description" content="AnimRu — аниме онлайн: онгоинги, новые серии, топ, каталог с фильтрами, списки и прогресс просмотра.">
 <title>AnimRu — аниме онлайн</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://anilibria.top">
 </head>
 <body>
-<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
 <header class="topbar">
   <div class="wrap topbar-inner">
@@ -190,8 +189,8 @@
 
           <div class="p-loader" id="pLoader" hidden><span class="spinner"></span></div>
 
-          <button class="p-bigplay" id="pBigPlay" aria-label="Воспроизвести">
-            <svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+          <button class="p-bigplay" id="pBigPlay" type="button" aria-label="Воспроизвести">
+            <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
           </button>
 
           <div class="p-toast" id="pToast" hidden></div>
@@ -206,21 +205,21 @@
             </div>
 
             <div class="p-row">
-              <button class="p-btn" id="pPlay" aria-label="Пауза/Воспроизведение">
-                <svg class="i-play" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
-                <svg class="i-pause" viewBox="0 0 24 24" width="22" height="22" hidden><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+              <button class="p-btn" id="pPlay" type="button" aria-label="Пауза/Воспроизведение">
+                <svg class="i-play" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+                <svg class="i-pause" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" hidden><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
               </button>
-              <button class="p-btn" id="pPrevEp" aria-label="Предыдущая серия">
-                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M6 6h2v12H6zm12 0v12l-9-6z"/></svg>
+              <button class="p-btn" id="pPrevEp" type="button" aria-label="Предыдущая серия">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 6h2v12H6zm12 0v12l-9-6z"/></svg>
               </button>
-              <button class="p-btn" id="pNextEp" aria-label="Следующая серия">
-                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M16 6h2v12h-2zM6 6l9 6-9 6z"/></svg>
+              <button class="p-btn" id="pNextEp" type="button" aria-label="Следующая серия">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M16 6h2v12h-2zM6 6l9 6-9 6z"/></svg>
               </button>
 
               <div class="p-volume">
-                <button class="p-btn" id="pMute" aria-label="Звук">
-                  <svg class="i-vol" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
-                  <svg class="i-muted" viewBox="0 0 24 24" width="20" height="20" hidden><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm15.6 3 2.1-2.1-1.4-1.4-2.1 2.1-2.1-2.1-1.4 1.4 2.1 2.1-2.1 2.1 1.4 1.4 2.1-2.1 2.1 2.1 1.4-1.4-2.1-2.1z"/></svg>
+                <button class="p-btn" id="pMute" type="button" aria-label="Звук">
+                  <svg class="i-vol" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+                  <svg class="i-muted" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" hidden><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm15.6 3 2.1-2.1-1.4-1.4-2.1 2.1-2.1-2.1-1.4 1.4 2.1 2.1-2.1 2.1 1.4 1.4 2.1-2.1 2.1 2.1 1.4-1.4-2.1-2.1z"/></svg>
                 </button>
                 <input type="range" id="pVol" min="0" max="1" step="0.01" value="1" aria-label="Громкость">
               </div>
@@ -230,20 +229,20 @@
               <span class="p-spacer"></span>
 
               <div class="p-select">
-                <button class="p-btn p-text" id="pSpeedBtn" aria-haspopup="true" aria-expanded="false">1×</button>
+                <button class="p-btn p-text" id="pSpeedBtn" type="button" aria-haspopup="true" aria-expanded="false">1×</button>
                 <div class="p-menu" id="pSpeedMenu" hidden></div>
               </div>
 
               <div class="p-select">
-                <button class="p-btn p-text" id="pQualityBtn" aria-haspopup="true" aria-expanded="false">Авто</button>
+                <button class="p-btn p-text" id="pQualityBtn" type="button" aria-haspopup="true" aria-expanded="false">Авто</button>
                 <div class="p-menu" id="pQualityMenu" hidden></div>
               </div>
 
-              <button class="p-btn" id="pPip" aria-label="Картинка в картинке">
-                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 11h-8v6h8v-6zm2-8H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H3V5h18v14z"/></svg>
+              <button class="p-btn" id="pPip" type="button" aria-label="Картинка в картинке">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 11h-8v6h8v-6zm2-8H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H3V5h18v14z"/></svg>
               </button>
-              <button class="p-btn" id="pFull" aria-label="Полный экран">
-                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+              <button class="p-btn" id="pFull" type="button" aria-label="Полный экран">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
               </button>
             </div>
           </div>
@@ -331,12 +330,12 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
-<script src="config.js?v=5"></script>
-<script src="db.js?v=5"></script>
-<script src="gamify.js?v=5"></script>
-<script src="app.js?v=5"></script>
-<script src="auth.js?v=5"></script>
-<script src="social.js?v=5"></script>
-<script src="extras.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="db.js?v=6"></script>
+<script src="gamify.js?v=6"></script>
+<script src="app.js?v=6"></script>
+<script src="auth.js?v=6"></script>
+<script src="social.js?v=6"></script>
+<script src="extras.js?v=6"></script>
 </body>
 </html>

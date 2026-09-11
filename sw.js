@@ -1,61 +1,69 @@
-/* AnimRu — service worker: оффлайн-оболочка.
-   Статика кэшируется, запросы к API и видео идут мимо кэша. */
-var CACHE = 'animru-v5';
-var SHELL = [
+/* AnimRu service worker: оболочка офлайн, медиа никогда не кэшируется. */
+
+const CACHE = 'animru-v6'
+
+const SHELL = [
   './',
-  './index.html',
-  './style.css?v=5',
-  './config.js?v=5',
-  './db.js?v=5',
-  './gamify.js?v=5',
-  './app.js?v=5',
-  './auth.js?v=5',
-  './social.js?v=5',
-  './extras.js?v=5',
-  './manifest.webmanifest'
-];
+  'index.html',
+  'style.css?v=6',
+  'config.js?v=6',
+  'db.js?v=6',
+  'gamify.js?v=6',
+  'app.js?v=6',
+  'auth.js?v=6',
+  'social.js?v=6',
+  'extras.js?v=6',
+  'manifest.webmanifest',
+]
 
-self.addEventListener('install', function (event) {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then(function (cache) {
-      return Promise.all(SHELL.map(function (url) {
-        return cache.add(url).catch(function () { return null; });
-      }));
-    }).then(function () { return self.skipWaiting(); })
-  );
-});
+    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()),
+  )
+})
 
-self.addEventListener('activate', function (event) {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(function (keys) {
-      return Promise.all(keys.map(function (key) {
-        return key === CACHE ? null : caches.delete(key);
-      }));
-    }).then(function () { return self.clients.claim(); })
-  );
-});
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  )
+})
 
-self.addEventListener('fetch', function (event) {
-  var request = event.request;
-  if (request.method !== 'GET') return;
+function isMedia(url) {
+  if (/\.(m3u8|ts|mp4|vtt|srt)$/i.test(url.pathname)) return true
+  return url.hostname.includes('libria')
+}
 
-  var url = new URL(request.url);
-  var sameOrigin = url.origin === self.location.origin;
-  var isMedia = /\.(m3u8|ts|mp4)(\?|$)/.test(url.pathname) || url.hostname.indexOf('libria') !== -1;
-  if (!sameOrigin || isMedia) return;
+self.addEventListener('fetch', (event) => {
+  const req = event.request
+  if (req.method !== 'GET') return
+
+  let url
+  try {
+    url = new URL(req.url)
+  } catch {
+    return
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return
+  if (isMedia(url)) return
+  if (url.origin !== self.location.origin) return
 
   event.respondWith(
-    caches.match(request).then(function (cached) {
-      var network = fetch(request).then(function (response) {
-        if (response && response.status === 200) {
-          var copy = response.clone();
-          caches.open(CACHE).then(function (cache) { cache.put(request, copy); });
-        }
-        return response;
-      }).catch(function () {
-        return cached || caches.match('./index.html');
-      });
-      return cached || network;
-    })
-  );
-});
+    caches.match(req).then((hit) => {
+      const network = fetch(req)
+        .then((res) => {
+          if (res && res.ok && res.type === 'basic') {
+            const copy = res.clone()
+            caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {})
+          }
+          return res
+        })
+        .catch(() => hit || caches.match('index.html'))
+
+      return hit || network
+    }),
+  )
+})
