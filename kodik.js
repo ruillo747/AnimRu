@@ -1,6 +1,7 @@
 /* AnimRu: вторая студия — Kodik.
    Токен не требует регистрации: берём из config.js → из localStorage → из открытого списка → встроенные.
-   Дата-API блокирует CORS, поэтому есть fallback на публичные прокси. */
+   Дата-API блокирует CORS, поэтому есть fallback на публичные прокси.
+   Фрейм идёт в sandbox: рекламные попапы и редиректы вкладки блокируются браузером. */
 (function () {
   'use strict';
 
@@ -15,6 +16,9 @@
     function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
     function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); }
   ];
+
+  /* без allow-popups и allow-top-navigation: фрейм не может открыть вкладку или увести страницу на рекламу */
+  var SANDBOX = 'allow-same-origin allow-scripts allow-forms allow-presentation allow-orientation-lock';
 
   var LS_SOURCE = 'animru:source';
   var LS_TOKEN = 'animru:kodik-token';
@@ -145,23 +149,20 @@
     });
   }
 
+  function searchUrl(token, query) {
+    return (
+      KODIK_API + '/search?token=' + encodeURIComponent(token) +
+      '&limit=24&with_material_data=true&with_episodes_data=true&title=' +
+      encodeURIComponent(query)
+    );
+  }
+
   function searchMaterials(query) {
     return getToken().then(function (token) {
-      var url =
-        KODIK_API + '/search?token=' + encodeURIComponent(token) +
-        '&limit=24&with_material_data=true&with_episodes_data=true&title=' +
-        encodeURIComponent(query);
-
-      return apiJson(url).catch(function (err) {
+      return apiJson(searchUrl(token, query)).catch(function (err) {
         if (!err.badToken) throw err;
         state.token = null;
-        return getToken().then(function (fresh) {
-          return apiJson(
-            KODIK_API + '/search?token=' + encodeURIComponent(fresh) +
-            '&limit=24&with_material_data=true&with_episodes_data=true&title=' +
-            encodeURIComponent(query)
-          );
-        });
+        return getToken().then(function (fresh) { return apiJson(searchUrl(fresh, query)); });
       });
     }).then(function (data) {
       var results = (data && data.results) || [];
@@ -225,7 +226,7 @@
     wrap.innerHTML =
       '<div class="src-bar kodik-voices" hidden></div>' +
       '<iframe class="kodik-frame" title="Kodik" allow="autoplay; fullscreen; encrypted-media; picture-in-picture"' +
-      ' allowfullscreen referrerpolicy="origin"></iframe>' +
+      ' allowfullscreen sandbox="' + SANDBOX + '"></iframe>' +
       '<p class="kodik-note" hidden></p>';
 
     main.insertBefore(bar, player);
@@ -308,13 +309,22 @@
     markButtons();
   }
 
+  /* свои серии и озвучки уже есть в интерфейсе, внутренние селекторы фрейма прячем */
+  function frameUrl(item) {
+    var url = item.link;
+    var sep = url.indexOf('?') === -1 ? '?' : '&';
+    return url + sep + 'episode=' + currentEpisode() + '&hide_selectors=true';
+  }
+
   function mountFrame() {
     if (state.source !== 'kodik' || !els.frame) return;
     var item = (state.materials || [])[state.picked || 0];
     if (!item) return;
-    var sep = item.link.indexOf('?') === -1 ? '?' : '&';
-    var next = item.link + sep + 'episode=' + currentEpisode();
-    if (els.frame.getAttribute('src') !== next) els.frame.src = next;
+    var next = frameUrl(item);
+    if (els.frame.getAttribute('src') !== next) {
+      els.frame.setAttribute('sandbox', SANDBOX);
+      els.frame.src = next;
+    }
     note('');
   }
 
@@ -374,7 +384,7 @@
       applyLayout();
       load();
     } else {
-      if (els.frame) els.frame.removeAttribute('src');
+      if (els.frame) els.frame.src = 'about:blank';
       note('');
       applyLayout();
     }
@@ -391,7 +401,7 @@
       state.materials = null;
       state.materialsFor = null;
       state.picked = 0;
-      if (els.frame) els.frame.removeAttribute('src');
+      if (els.frame) els.frame.src = 'about:blank';
       renderVoices();
     }
 
