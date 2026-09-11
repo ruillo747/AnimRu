@@ -1,18 +1,19 @@
 /* AnimRu service worker: оболочка доступна офлайн, медиа никогда не кэшируется. */
 
-const CACHE = 'animru-v7'
+const CACHE = 'animru-v8'
 
 const SHELL = [
   './',
   'index.html',
-  'style.css?v=7',
-  'config.js?v=7',
-  'db.js?v=7',
-  'gamify.js?v=7',
-  'app.js?v=7',
-  'auth.js?v=7',
-  'social.js?v=7',
-  'extras.js?v=7',
+  'style.css?v=8',
+  'config.js?v=8',
+  'db.js?v=8',
+  'gamify.js?v=8',
+  'app.js?v=8',
+  'auth.js?v=8',
+  'social.js?v=8',
+  'extras.js?v=8',
+  'kodik.js?v=8',
   'manifest.webmanifest',
 ]
 
@@ -36,7 +37,7 @@ self.addEventListener('activate', (event) => {
 
 function isMedia(url) {
   if (/\.(m3u8|ts|mp4|vtt|srt)$/i.test(url.pathname)) return true
-  return url.hostname.includes('libria')
+  return url.hostname.includes('libria') || url.hostname.includes('kodik')
 }
 
 /* Сначала сеть, кэш — только запасной вариант. Иначе обновлённые стили не доезжают до браузера. */

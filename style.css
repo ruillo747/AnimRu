@@ -691,6 +691,34 @@ img { display: block; max-width: 100%; }
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 .switch input { accent-color: var(--accent); }
 
+/* ---------- выбор студии ---------- */
+
+.src-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.src-label { margin-right: 2px; font-size: 12px; font-weight: 600; color: var(--dim); }
+.src-btn {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.src-btn:hover { border-color: var(--accent); color: var(--text); }
+.src-btn.active { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+.kodik-wrap { display: grid; gap: 10px; }
+.kodik-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: #000;
+}
+.kodik-note { margin: 0; font-size: 13px; color: var(--muted); }
+
 /* ---------- плеер ---------- */
 
 .player {
@@ -840,8 +868,55 @@ img { display: block; max-width: 100%; }
 .p-text { font-weight: 600; }
 .p-spacer { flex: 1 1 auto; }
 .p-time { font-size: 12.5px; color: rgba(255, 255, 255, .85); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* громкость: свой трек и круглый ползунок во всех браузерах */
 .p-volume { display: flex; align-items: center; gap: 6px; }
-.p-volume input { width: 76px; accent-color: var(--accent); }
+.p-volume input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 84px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  cursor: pointer;
+}
+.p-volume input[type='range']::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .28);
+}
+.p-volume input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4.5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.p-volume input[type='range']::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .28);
+}
+.p-volume input[type='range']::-moz-range-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.p-volume input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.p-volume input[type='range']:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 .p-select { position: relative; flex: none; }
 
 .p-menu {
@@ -976,6 +1051,13 @@ html[data-theme='light'] .modal-backdrop { background: rgba(20, 20, 25, .38); }
   .p-knob { width: 14px; height: 14px; right: -7px; }
 
   .p-volume { order: 1; }
+  .p-volume input[type='range'] { width: 72px; height: 26px; }
+  .p-volume input[type='range']::-webkit-slider-runnable-track { height: 6px; }
+  .p-volume input[type='range']::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -6px; }
+  .p-volume input[type='range']::-moz-range-track { height: 6px; }
+  .p-volume input[type='range']::-moz-range-progress { height: 6px; }
+  .p-volume input[type='range']::-moz-range-thumb { width: 18px; height: 18px; }
+
   .p-time { display: inline; order: 2; margin-left: 4px; font-size: 12px; }
   .p-spacer { order: 3; }
   #pPip { display: none; }
@@ -996,16 +1078,16 @@ html[data-theme='light'] .modal-backdrop { background: rgba(20, 20, 25, .38); }
   .hero-inner { grid-template-columns: 1fr; }
   .poster { max-width: 190px; }
   .p-bigplay { width: 62px; height: 62px; }
-  .p-volume input { display: none; }
 }
 
 /* узкие телефоны: плеер во всю ширину экрана */
 @media (max-width: 520px) {
   .watch { gap: 16px; }
-  .player { border-left: 0; border-right: 0; border-radius: 0; margin: 0 -18px; }
+  .player, .kodik-frame { border-left: 0; border-right: 0; border-radius: 0; margin: 0 -18px; width: calc(100% + 36px); }
   .p-bigplay { width: 56px; height: 56px; }
   .p-bigplay svg { width: 24px; height: 24px; }
   .p-time { font-size: 11.5px; }
+  .p-volume input[type='range'] { width: 62px; }
 }
 
 /* горизонтальный телефон: панель компактнее, видео не уезжает за экран */
