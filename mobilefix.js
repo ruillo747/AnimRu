@@ -9,6 +9,18 @@
     /* только защита от выезда за экран, без вмешательства в раскладку шапки */
     'html,body{max-width:100%;overflow-x:hidden}',
     'img,video,iframe{max-width:100%}',
+    /* на телефоне шапка переносилась второй строкой и ложилась на контент */
+    '@media (max-width:760px){' +
+      '.topbar-inner{flex-wrap:nowrap !important;gap:8px !important}' +
+      '.nav,.lvl-chip{display:none !important}' +
+      '.logo{flex:0 0 auto}' +
+      '.search-wrap{flex:1 1 auto;min-width:0}' +
+      '.search{width:100% !important;min-width:0 !important}' +
+      '#searchInput{width:100%;min-width:0}' +
+      '.acc-btn{flex:0 0 auto;white-space:nowrap;padding:7px 11px;font-size:13px}' +
+      '.icon-btn{flex:0 0 auto}' +
+      '.suggest{left:0;right:0;width:auto}' +
+    '}',
     /* запасной полный экран для WebView без Fullscreen API */
     '.fs-fallback{position:fixed !important;inset:0 !important;width:100vw !important;height:100vh !important;' +
       'max-width:none !important;margin:0 !important;padding:0 !important;border:0 !important;border-radius:0 !important;' +
@@ -182,6 +194,28 @@
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') exitFallback();
   });
+
+  /* ---------------- офлайн-копия ---------------- */
+
+  /* CDN Anilibria не отдаёт заголовки CORS, поэтому в обычном браузере
+     страница не может прочитать видео. В приложении это делает нативный прокси,
+     поэтому вне приложения честно говорим об этом вместо бесконечной ошибки. */
+  var IN_APP = /AnimRu\//.test(navigator.userAgent || '');
+  var APK = 'https://github.com/ruillo747/AnimRu/releases/download/android-latest/animru.apk';
+
+  document.addEventListener('click', function (event) {
+    if (IN_APP) return;
+    var button = event.target.closest && event.target.closest('#dlBtn');
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    var state = document.getElementById('dlState');
+    if (state) {
+      state.innerHTML =
+        'Офлайн-копия работает только в приложении: браузеру источник запрещает читать файлы видео. ' +
+        '<a href="' + APK + '">Скачать приложение</a>';
+    }
+  }, true);
 
   /* ---------------- iframe Kodik: разрешаем полный экран и даём свою кнопку ---------------- */
 
