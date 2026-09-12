@@ -1,0 +1,2 @@
+-keep class ru.animru.app.** { *; }
+-keepattributes JavascriptInterface
