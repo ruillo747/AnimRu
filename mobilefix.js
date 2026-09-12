@@ -11,8 +11,13 @@
     'img,video,iframe{max-width:100%}',
     /* на телефоне шапка переносилась второй строкой и ложилась на контент */
     '@media (max-width:760px){' +
-      '.topbar-inner{flex-wrap:nowrap !important;gap:8px !important}' +
-      '.nav,.lvl-chip{display:none !important}' +
+      '.topbar-inner{position:relative;flex-wrap:nowrap !important;gap:8px !important}' +
+      '.lvl-chip{display:none !important}' +
+      /* прячем меню только закрытое, иначе кнопка гамбургера ничего не открывает */
+      '.nav:not(.open){display:none !important}' +
+      '.nav.open{display:flex !important;flex-direction:column;gap:2px;position:absolute;top:100%;left:0;right:0;' +
+        'padding:8px 12px 12px;background:var(--surface);border-bottom:1px solid var(--line);z-index:60}' +
+      '.nav.open .nav-link{padding:10px 4px;font-size:15px}' +
       '.logo{flex:0 0 auto}' +
       '.search-wrap{flex:1 1 auto;min-width:0}' +
       '.search{width:100% !important;min-width:0 !important}' +
