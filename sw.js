@@ -1,27 +1,27 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша. */
 
-const CACHE = 'animru-v15'
+const CACHE = 'animru-v16'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
   './',
   'index.html',
   'style.css?v=9',
-  'config.js?v=15',
+  'config.js?v=16',
   'db.js?v=9',
   'gamify.js?v=9',
   'app.js?v=9',
   'auth.js?v=9',
   'social.js?v=9',
-  'extras.js?v=15',
+  'extras.js?v=16',
   'kodik.js?v=9',
-  'polish.js?v=15',
-  'kodik-net.js?v=15',
-  'mobilefix.js?v=15',
-  'offline.js?v=15',
-  'schedule.js?v=15',
-  'kodik-browse.js?v=15',
+  'polish.js?v=16',
+  'kodik-net.js?v=16',
+  'mobilefix.js?v=16',
+  'offline.js?v=16',
+  'schedule.js?v=16',
+  'kodik-browse.js?v=16',
   'manifest.webmanifest',
 ]
 

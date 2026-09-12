@@ -14,6 +14,8 @@
   var TOKENS_URL = 'https://raw.githubusercontent.com/YaNesyTortiK/AnimeParsers/main/kdk_tokns/tokens.json';
   var IN_APP = /AnimRu\//.test(navigator.userAgent || '');
   var TIMEOUT = 9000;
+  /* свой Cloudflare Worker: единственный канал, который не зависит от чужих лимитов */
+  var DEFAULT_PROXY = 'https://animru.nozirovruillo.workers.dev/?url=';
 
   /* известные общедоступные токены (расшифрованы из tokens.json) */
   var BASE_TOKENS = [
@@ -23,23 +25,19 @@
     '77b567ec164db6ca9162d2f3dc4948c3'
   ];
 
-  /* передатчики с заголовками CORS */
+  /* запасные передатчики с заголовками CORS (большинство живёт недолго) */
   var ROUTES = [
     { id: 'allorigins', wrap: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
     { id: 'codetabs', wrap: function (u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
-    { id: 'corsproxy', wrap: function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
-    { id: 'corslol', wrap: function (u) { return 'https://api.cors.lol/?url=' + encodeURIComponent(u); } },
-    { id: 'corsfix', wrap: function (u) { return 'https://proxy.corsfix.com/?' + u; } },
-    { id: 'workers', wrap: function (u) { return 'https://test.cors.workers.dev/?' + u; } },
     { id: 'corseu', wrap: function (u) { return 'https://cors.eu.org/' + u; } },
-    { id: 'thingproxy', wrap: function (u) { return 'https://thingproxy.freeboard.io/fetch/' + u; } },
     { id: 'jina', wrap: function (u) { return 'https://r.jina.ai/' + u; } }
   ];
 
-  /* свой прокси (например Cloudflare Worker) всегда первый, прямой запрос — только в приложении */
+  /* свой прокси всегда первый, прямой запрос — только в приложении */
   (function orderRoutes() {
     var custom = '';
     try { custom = localStorage.getItem(LS_PROXY) || ''; } catch (e) {}
+    if (!custom) custom = DEFAULT_PROXY;
     if (custom) {
       ROUTES.unshift({
         id: 'custom',
@@ -307,7 +305,7 @@
     var node = document.getElementById('kbStatus');
     if (!node) return;
     if (state.ok) return;
-    node.textContent = 'Kodik не ответил ни через один из каналов. Вставь свой токен в поле ниже, укажи свой прокси или открой каталог в приложении AnimRu.';
+    node.textContent = 'Kodik не ответил ни через один из каналов. Проверь свой прокси или вставь свежий токен в поле ниже.';
   }
 
   patchFetch();
