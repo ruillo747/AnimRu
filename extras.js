@@ -73,7 +73,7 @@
     });
   }
 
-  /* ---------------- подключение модулей офлайна, расписания и Kodik ---------------- */
+  /* ---------------- подключение модулей: мобильные фиксы, офлайн, расписание, Kodik ---------------- */
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
@@ -88,10 +88,10 @@
       ].join('');
       document.head.appendChild(style);
     }
-    ['offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
+    ['mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=11';
+      script.src = file + '?v=12';
       script.defer = true;
       document.body.appendChild(script);
     });

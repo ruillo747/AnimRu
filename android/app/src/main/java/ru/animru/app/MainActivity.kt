@@ -1,14 +1,18 @@
 package ru.animru.app
 
 import android.annotation.SuppressLint
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -28,6 +32,10 @@ class MainActivity : AppCompatActivity() {
 
     private val io = Executors.newSingleThreadExecutor()
     private var blocked = 0
+
+    /* полный экран видео: WebView отдаёт свою View, её нужно показать поверх всего */
+    private var fullscreenView: View? = null
+    private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,13 +94,47 @@ class MainActivity : AppCompatActivity() {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
             }
+
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                if (fullscreenView != null) {
+                    callback.onCustomViewHidden()
+                    return
+                }
+                fullscreenView = view
+                fullscreenCallback = callback
+                val root = window.decorView as ViewGroup
+                root.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                )
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                supportActionBar?.hide()
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+
+            override fun onHideCustomView() {
+                val view = fullscreenView ?: return
+                (window.decorView as ViewGroup).removeView(view)
+                fullscreenView = null
+                fullscreenCallback?.onCustomViewHidden()
+                fullscreenCallback = null
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
         }
 
         refresh.setOnRefreshListener { web.reload() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (web.canGoBack()) web.goBack() else finish()
+                when {
+                    fullscreenView != null -> web.webChromeClient?.onHideCustomView()
+                    web.canGoBack() -> web.goBack()
+                    else -> finish()
+                }
             }
         })
 
