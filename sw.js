@@ -18,6 +18,7 @@ const SHELL = [
   'kodik.js?v=9',
   'offline.js?v=9',
   'schedule.js?v=9',
+  'kodik-browse.js?v=9',
   'manifest.webmanifest',
 ]
 

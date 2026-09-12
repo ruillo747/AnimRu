@@ -73,16 +73,22 @@
     });
   }
 
-  /* ---------------- подключение модулей офлайна и расписания ---------------- */
+  /* ---------------- подключение модулей офлайна, расписания и Kodik ---------------- */
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
       var style = document.createElement('style');
       style.id = 'extras-css';
-      style.textContent = '.src-bar{margin-top:12px}@media (max-width:900px){.src-bar{margin-top:8px}}';
+      style.textContent = [
+        '.src-bar{margin-top:12px}',
+        '@media (max-width:900px){.src-bar{margin-top:8px}}',
+        /* панель управления уходит во время воспроизведения, даже если курсор или фокус на плеере */
+        '.player.hide-ui .p-controls{opacity:0 !important;pointer-events:none !important}',
+        '@media (hover:none){.player.hide-ui .p-controls{opacity:1 !important;pointer-events:auto !important}}'
+      ].join('');
       document.head.appendChild(style);
     }
-    ['offline.js', 'schedule.js'].forEach(function (file) {
+    ['offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
       script.src = file + '?v=9';
@@ -91,11 +97,17 @@
     });
   })();
 
-  /* ---------------- плеер: пропуск заставки и субтитры ---------------- */
+  /* ---------------- плеер: автоскрытие панели, пропуск заставки и субтитры ---------------- */
 
   var video = $('player');
   var playerRoot = $('playerRoot');
   if (!video || !playerRoot) return;
+
+  /* после клика по кнопкам снимаем фокус, иначе :focus-within держит панель на виду */
+  playerRoot.addEventListener('click', function (event) {
+    var button = event.target.closest('.p-btn, .p-bigplay');
+    if (button) setTimeout(function () { button.blur(); }, 0);
+  });
 
   var marks = { titleId: null, episodes: {} };
   var skipButton = null;
