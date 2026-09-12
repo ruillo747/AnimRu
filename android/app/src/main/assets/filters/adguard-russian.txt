@@ -1,0 +1,39 @@
+! Title: AnimRu — русские правила (синтаксис AdGuard)
+! Description: реклама и пуш-подписки, типичные для аниме-озвучек и сторонних плееров
+
+||yandex.ru/ads^
+||yandex.ru/an/^
+||ads.adfox.ru^
+||banners.adfox.ru^
+||vk.com/rtrg^
+||top100.rambler.ru^
+||counter.rambler.ru^
+||tns-counter.ru^
+||hit.stat.ru^
+||luxup.ru^
+||gnezdo.ru^
+||adprofy.net^
+||adline.ws^
+||tovarro.com^
+||obmenka.pw^
+||push.world^
+||pushwoosh.com^
+||sweetpush.net^
+||dsnextgen.com^
+||actionteaser.ru^
+||teasernet.com^
+||rtb.com.ru^
+||adtarget.me^
+||otm-r.com^
+||videoroll.net^
+||solta.media^
+||betweendigital.com^
+||adpartner.pro^
+||yadro.ru^
+
+! плавающие баннеры и прероллы в сторонних плеерах
+##.floating-banner
+##.player-ads
+##.pl-ads
+##.vjs-overlay-ad
+##div[class*="teaser"]
