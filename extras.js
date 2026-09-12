@@ -88,10 +88,10 @@
       ].join('');
       document.head.appendChild(style);
     }
-    ['polish.js', 'kodik-net.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
+    ['polish.js', 'kodik-net.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js', 'catalog.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=18';
+      script.src = file + '?v=19';
       script.defer = true;
       document.body.appendChild(script);
     });

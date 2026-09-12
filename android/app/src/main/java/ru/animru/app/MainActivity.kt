@@ -2,10 +2,14 @@ package ru.animru.app
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
+import android.graphics.Typeface
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -14,6 +18,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -36,6 +41,12 @@ class MainActivity : AppCompatActivity() {
     /* полный экран видео: WebView отдаёт свою View, её нужно показать поверх всего */
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+
+    /* заставка входа: логотип наезжает и растворяется, пока грузится сайт */
+    private var splash: FrameLayout? = null
+    private var splashMark: TextView? = null
+    private var splashLabel: TextView? = null
+    private var splashClosed = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,6 +102,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 refresh.isRefreshing = false
                 injectCosmetics(url)
+                view.postDelayed({ hideSplash() }, 260)
             }
         }
 
@@ -143,8 +155,116 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        if (savedInstanceState == null) web.loadUrl(SITE) else web.restoreState(savedInstanceState)
+        if (savedInstanceState == null) {
+            showSplash()
+            web.loadUrl(SITE)
+        } else {
+            splashClosed = true
+            web.restoreState(savedInstanceState)
+        }
     }
+
+    /**
+     * Анимация входа: оранжевый знак вырастает из центра, рядом проявляется название,
+     * затем вся заставка приближается и гаснет, открывая сайт.
+     */
+    private fun showSplash() {
+        val holder = FrameLayout(this)
+        holder.setBackgroundColor(BACKGROUND)
+        holder.isClickable = true
+
+        val mark = TextView(this)
+        mark.text = "A"
+        mark.textSize = 64f
+        mark.setTextColor(ACCENT)
+        mark.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        val markParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        markParams.gravity = Gravity.CENTER
+        markParams.bottomMargin = dp(34)
+        holder.addView(mark, markParams)
+
+        val label = TextView(this)
+        label.text = "AnimRu"
+        label.textSize = 17f
+        label.setTextColor(0xFFF2F2F3.toInt())
+        label.letterSpacing = 0.22f
+        label.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        val labelParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        labelParams.gravity = Gravity.CENTER
+        labelParams.topMargin = dp(46)
+        holder.addView(label, labelParams)
+
+        (window.decorView as ViewGroup).addView(
+            holder,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        splash = holder
+        splashMark = mark
+        splashLabel = label
+        splashClosed = false
+
+        mark.alpha = 0f
+        mark.scaleX = 0.62f
+        mark.scaleY = 0.62f
+        mark.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(560)
+            .setInterpolator(DecelerateInterpolator(1.8f))
+            .start()
+
+        label.alpha = 0f
+        label.translationY = dp(10).toFloat()
+        label.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setStartDelay(220)
+            .setDuration(420)
+            .setInterpolator(DecelerateInterpolator(1.4f))
+            .start()
+
+        /* сайт может грузиться долго — заставка всё равно уйдёт сама */
+        holder.postDelayed({ hideSplash() }, 4200)
+    }
+
+    private fun hideSplash() {
+        if (splashClosed) return
+        val holder = splash ?: return
+        splashClosed = true
+
+        splashMark?.animate()
+            ?.scaleX(1.18f)
+            ?.scaleY(1.18f)
+            ?.setDuration(340)
+            ?.setInterpolator(AccelerateInterpolator(1.4f))
+            ?.start()
+        splashLabel?.animate()?.alpha(0f)?.setDuration(200)?.start()
+
+        holder.animate()
+            .alpha(0f)
+            .setStartDelay(140)
+            .setDuration(300)
+            .withEndAction {
+                (window.decorView as ViewGroup).removeView(holder)
+                splash = null
+                splashMark = null
+                splashLabel = null
+            }
+            .start()
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     /** Косметические правила AdGuard прячут блоки, которые уже пришли с разметкой. */
     private fun injectCosmetics(url: String?) {
@@ -179,5 +299,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val SITE = "https://ruillo747.github.io/AnimRu/"
+        private const val BACKGROUND = 0xFF0A0A0B.toInt()
+        private const val ACCENT = 0xFFFF7A18.toInt()
     }
 }
