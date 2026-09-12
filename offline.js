@@ -159,20 +159,26 @@
   }
 
   function cacheUrl(cache, url) {
-    return fetch(url, { mode: 'cors' }).then(function (res) {
+    return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function (res) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (res.type === 'opaque') throw new Error('CORS');
       return cache.put(url, res);
     });
   }
 
+  /* Возвращает число неудачных запросов, чтобы молчаливый провал не выглядел успехом. */
   function cacheAll(cache, urls, onProgress) {
     var done = 0;
+    var failed = 0;
+    var lastError = null;
     var cursor = 0;
     function worker() {
       if (cursor >= urls.length) return Promise.resolve();
       var url = urls[cursor++];
       return cacheUrl(cache, url)
-        .catch(function () {
+        .catch(function (err) {
+          failed++;
+          lastError = err;
           return null;
         })
         .then(function () {
@@ -183,7 +189,41 @@
     }
     var pool = [];
     for (var i = 0; i < Math.min(PARALLEL, urls.length); i++) pool.push(worker());
-    return Promise.all(pool);
+    return Promise.all(pool).then(function () {
+      return { total: urls.length, failed: failed, error: lastError };
+    });
+  }
+
+  /* Ошибка одного-двух сегментов терпима, массовый провал — нет. */
+  function requireMostly(result, label) {
+    if (!result.total) return result;
+    if (result.failed >= result.total) {
+      throw new Error(label + ': ни один файл не загрузился (' + reasonOf(result.error) + ')');
+    }
+    if (result.failed / result.total > 0.1) {
+      throw new Error(label + ': не загрузилось ' + result.failed + ' из ' + result.total);
+    }
+    return result;
+  }
+
+  function reasonOf(err) {
+    if (!err) return 'причина неизвестна';
+    var text = err.message || String(err);
+    if (text === 'CORS' || /Failed to fetch|NetworkError|Load failed/i.test(text)) {
+      return 'сервер видео не отдал файл приложению';
+    }
+    if (/QuotaExceeded|quota/i.test(text)) return 'не хватает места в хранилище';
+    return text;
+  }
+
+  /* В приложении и старых WebView Cache Storage может быть недоступен. */
+  function storageProblem() {
+    if (!window.caches || typeof caches.open !== 'function') {
+      return 'встроенный браузер не поддерживает офлайн-хранилище';
+    }
+    if (!window.isSecureContext) return 'страница открыта не по HTTPS';
+    if (!('serviceWorker' in navigator)) return 'служба офлайн-доступа недоступна';
+    return '';
   }
 
   function download() {
@@ -193,6 +233,15 @@
     var index = episodeIndex();
     var button = document.getElementById('dlBtn');
     var state = document.getElementById('dlState');
+    if (!button || !state) return;
+
+    var problem = storageProblem();
+    if (problem) {
+      state.textContent = 'Скачивание недоступно: ' + problem;
+      notify('Скачивание недоступно: ' + problem);
+      return;
+    }
+
     busy = true;
     button.disabled = true;
     button.textContent = 'Готовим…';
@@ -220,21 +269,32 @@
         var extras = [API + '/anime/releases/' + encodeURIComponent(id)];
         var poster = posterOf(release);
         if (poster) extras.push(poster);
-        return cacheAll(cacheRef, extras, function () {}).then(function () {
-          return resolvePlaylist(source.url);
-        });
+        return cacheAll(cacheRef, extras, function () {})
+          .then(function (result) {
+            return requireMostly(result, 'Описание тайтла');
+          })
+          .then(function () {
+            return resolvePlaylist(source.url);
+          });
       })
       .then(function (playlist) {
         urls = segmentsOf(playlist.text, playlist.url);
         if (!urls.length) throw new Error('empty playlist');
         var meta = [source.url];
         if (playlist.url !== source.url) meta.push(playlist.url);
-        return cacheAll(cacheRef, meta, function () {}).then(function () {
-          button.textContent = '0%';
-          return cacheAll(cacheRef, urls, function (done, total) {
-            button.textContent = Math.round((done / total) * 100) + '%';
+        return cacheAll(cacheRef, meta, function () {})
+          .then(function (result) {
+            return requireMostly(result, 'Плейлист');
+          })
+          .then(function () {
+            button.textContent = '0%';
+            return cacheAll(cacheRef, urls, function (done, total) {
+              button.textContent = Math.round((done / total) * 100) + '%';
+            });
+          })
+          .then(function (result) {
+            return requireMostly(result, 'Видео');
           });
-        });
       })
       .then(function () {
         var data = readIndex();
@@ -253,8 +313,10 @@
         notify('Серия скачана — доступна без интернета');
         renderHome();
       })
-      .catch(function () {
-        notify('Не удалось скачать серию');
+      .catch(function (err) {
+        var reason = reasonOf(err);
+        state.textContent = 'Не удалось скачать: ' + reason;
+        notify('Не удалось скачать серию — ' + reason);
       })
       .then(function () {
         busy = false;
@@ -309,9 +371,8 @@
     var home = document.getElementById('view-home');
     if (!home) return;
     var block = document.getElementById('offlineBlock');
-    var saved = readIndex();
-    var entries = Object.keys(saved).map(function (key) {
-      var item = saved[key];
+    var entries = Object.keys(readIndex()).map(function (key) {
+      var item = readIndex()[key];
       item.key = key;
       return item;
     });
