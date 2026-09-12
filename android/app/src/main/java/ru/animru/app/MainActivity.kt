@@ -61,6 +61,8 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = true
             useWideViewPort = true
+            allowFileAccess = true
+            javaScriptCanOpenWindowsAutomatically = true
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             userAgentString = "$userAgentString AnimRu/1.0"
@@ -74,9 +76,12 @@ class MainActivity : AppCompatActivity() {
             ): WebResourceResponse? {
                 val url = request.url.toString()
                 val pageHost = runCatching { URL(view.url ?: SITE).host }.getOrNull()
-                if (!blocker.shouldBlock(url, pageHost)) return null
-                blocked += 1
-                return WebResourceResponse("text/plain", "utf-8", AdBlocker.emptyBody())
+                if (blocker.shouldBlock(url, pageHost)) {
+                    blocked += 1
+                    return WebResourceResponse("text/plain", "utf-8", AdBlocker.emptyBody())
+                }
+                if (MediaProxy.handles(request)) return MediaProxy.fetch(request)
+                return null
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
