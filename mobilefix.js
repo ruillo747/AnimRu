@@ -1,5 +1,5 @@
 /* AnimRu: полный экран в приложении, защита от горизонтальной прокрутки
-   и резервные пути доступа к Kodik (второй домен и свой токен). */
+   и резервные пути доступа к Kodik (зеркало домена, CORS-передатчики, свой токен). */
 (function () {
   'use strict';
 
@@ -46,10 +46,28 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  /* ---------------- Kodik: второй домен, если первый не отвечает ---------------- */
+  /* ---------------- Kodik: зеркало домена и CORS-передатчики ---------------- */
 
   var HOSTS = ['kodik-api.com', 'kodikapi.com'];
+  var LS_ROUTE = 'animru:kodik-route';
+
+  /* Браузеру API Kodik отвечает без заголовков CORS (и часто режется провайдером),
+     поэтому держим очередь передатчиков и запоминаем тот, который сработал. */
+  var PROXIES = [
+    'https://api.allorigins.win/raw?url=',
+    'https://api.codetabs.com/v1/proxy?quest=',
+    'https://corsproxy.io/?url=',
+    'https://proxy.cors.sh/'
+  ];
   var lastError = '';
+
+  function readRoute() {
+    try { return localStorage.getItem(LS_ROUTE) || ''; } catch (e) { return ''; }
+  }
+
+  function writeRoute(prefix) {
+    try { localStorage.setItem(LS_ROUTE, prefix); } catch (e) {}
+  }
 
   function swapHost(url) {
     for (var i = 0; i < HOSTS.length; i++) {
@@ -69,19 +87,56 @@
       });
     }
 
+    /* Список попыток: прямой адрес, зеркало домена, затем передатчики с CORS. */
+    function candidates(url) {
+      var direct = [url];
+      var alt = swapHost(url);
+      if (alt) direct.push(alt);
+      var list = [];
+      var saved = readRoute();
+      if (saved) {
+        list.push(saved === 'direct' ? url : saved + encodeURIComponent(url));
+      }
+      direct.forEach(function (item) { list.push(item); });
+      PROXIES.forEach(function (prefix) {
+        direct.forEach(function (item) { list.push(prefix + encodeURIComponent(item)); });
+      });
+      return list;
+    }
+
+    function routeOf(target, url) {
+      if (target === url) return 'direct';
+      for (var i = 0; i < PROXIES.length; i++) {
+        if (target.indexOf(PROXIES[i]) === 0) return PROXIES[i];
+      }
+      return 'direct';
+    }
+
     function patched(input, init) {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
       if (!url || HOSTS.every(function (host) { return url.indexOf(host) === -1; })) {
         return original(input, init);
       }
-      return once(url, init).catch(function (error) {
-        var alt = swapHost(url);
-        if (!alt) throw error;
-        return once(alt, init).catch(function (second) {
-          lastError = second.message || String(second);
-          throw second;
-        });
-      });
+      var list = candidates(url);
+      var index = 0;
+
+      function attempt() {
+        if (index >= list.length) {
+          return Promise.reject(new Error(lastError || 'Kodik недоступен'));
+        }
+        var target = list[index++];
+        return once(target, init)
+          .then(function (res) {
+            writeRoute(routeOf(target, url));
+            return res;
+          })
+          .catch(function (err) {
+            lastError = err.message || String(err);
+            return attempt();
+          });
+      }
+
+      return attempt();
     }
 
     patched.animruPatched = true;
@@ -111,6 +166,7 @@
       try {
         if (value) localStorage.setItem(LS_TOKEN, value);
         else localStorage.removeItem(LS_TOKEN);
+        localStorage.removeItem(LS_ROUTE);
       } catch (e) {}
       location.reload();
     });
@@ -124,8 +180,8 @@
     var empty = status && !status.hidden && /Ничего не нашлось/.test(status.textContent || '');
     if (empty) {
       hint.textContent = lastError
-        ? 'Каталог пуст: Kodik отказал в доступе (' + lastError + '). Вставь свой токен и нажми «Применить».'
-        : 'Каталог пуст. Скорее всего публичный токен Kodik больше не действует — вставь свой.';
+        ? 'Каталог пуст: ни один путь до Kodik не ответил (' + lastError + '). В приложении запросы идут напрямую и работают надёжнее.'
+        : 'Каталог пуст. Можно подставить свой токен Kodik.';
     } else {
       hint.textContent = 'Токен нужен только если каталог Kodik пустой.';
     }

@@ -6,18 +6,26 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * CDN Anilibria не отдаёт заголовки CORS, поэтому страница не может сама
- * прочитать плейлисты и сегменты для офлайн-копии. Внутри приложения
- * запрашиваем их нативно и возвращаем с разрешающими заголовками.
+ * Браузеру запрещено читать ответы без заголовков CORS: так ведёт себя
+ * и CDN Anilibria (плейлисты для офлайн-копии), и API Kodik (каталог второй студии).
+ * Внутри приложения забираем такие адреса нативно и отдаём странице
+ * с разрешающими заголовками.
  */
 object MediaProxy {
 
-    private val hosts = listOf(
+    /** Хосты, где проксируем только файлы видео и плейлисты. */
+    private val mediaHosts = listOf(
         "anilibria.top",
         "anilibria.tv",
         "anilib.top",
         "libria.fun",
         "wwnd.space"
+    )
+
+    /** Хосты, где проксируем любой запрос: API Kodik вообще не знает про CORS. */
+    private val apiHosts = listOf(
+        "kodik-api.com",
+        "kodikapi.com"
     )
 
     private val media = Regex(
@@ -28,7 +36,8 @@ object MediaProxy {
     fun handles(request: WebResourceRequest): Boolean {
         if (!request.method.equals("GET", ignoreCase = true)) return false
         val host = request.url.host ?: return false
-        if (!hosts.any { host == it || host.endsWith(".$it") }) return false
+        if (apiHosts.any { host == it || host.endsWith(".$it") }) return true
+        if (!mediaHosts.any { host == it || host.endsWith(".$it") }) return false
         return media.containsMatchIn(request.url.toString())
     }
 
