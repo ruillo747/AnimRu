@@ -248,19 +248,39 @@
       .then(function (text) {
         var data = parseJson(text || '');
         if (!data) throw new Error('bad json');
+        if (data.error) throw new Error(String(data.error));
         return data;
       });
+  }
+
+  /* у Kodik нет параметра page: лишнее поле даёт 400, страницы листаются по ссылке next_page */
+  function sanitize(raw) {
+    var url;
+    try { url = new URL(raw); } catch (e) { return { url: raw, page: 1 }; }
+    var page = parseInt(url.searchParams.get('page') || '1', 10);
+    url.searchParams.delete('page');
+    return { url: url.toString(), page: isFinite(page) && page > 0 ? page : 1 };
+  }
+
+  function walk(url, page) {
+    return through(url).then(function (data) {
+      if (page <= 1) return data;
+      if (!data.next_page) return { results: [], total: data.total || 0, next_page: null, prev_page: null };
+      return walk(data.next_page, page - 1);
+    });
   }
 
   function request(path, params) {
     return resolve().then(function () {
       if (!state.ok) throw new Error('kodik-unavailable');
       var merged = Object.assign({}, params || {}, { token: state.token });
-      return through(apiUrl(path, merged)).catch(function (err) {
+      var plan = sanitize(apiUrl(path, merged));
+      return walk(plan.url, plan.page).catch(function (err) {
         /* связка рассыпалась на ходу: подбираем заново и повторяем один раз */
         return resolve(true).then(function () {
           if (!state.ok) throw err;
-          return through(apiUrl(path, Object.assign({}, params || {}, { token: state.token })));
+          var retry = sanitize(apiUrl(path, Object.assign({}, params || {}, { token: state.token })));
+          return walk(retry.url, retry.page);
         });
       });
     });
@@ -279,7 +299,8 @@
       return resolve()
         .then(function () {
           if (!state.ok) throw new Error('kodik-unavailable');
-          return through(retarget(rawUrl));
+          var plan = sanitize(retarget(rawUrl));
+          return walk(plan.url, plan.page);
         })
         .then(function (data) {
           return new Response(JSON.stringify(data), {
