@@ -97,6 +97,50 @@
     });
   })();
 
+  /* ---------------- чистка вывода: оценка без значения и описание с HTML ---------------- */
+
+  (function fixOutput() {
+    function fixScores(root) {
+      Array.prototype.slice.call(root.querySelectorAll('.top-score')).forEach(function (node) {
+        var value = parseFloat(node.textContent);
+        var next = isFinite(value) ? value.toFixed(1) : '—';
+        if (node.textContent !== next) node.textContent = next;
+        node.title = isFinite(value) ? 'Оценка' : 'Оценок пока нет';
+      });
+    }
+
+    /* Anilibria отдаёт описание с тегами <br>, <font>, <a>: показываем его как обычный текст */
+    function fixDescription(node) {
+      var raw = node.textContent || '';
+      if (raw.indexOf('<') < 0 && raw.indexOf('&') < 0) return;
+      var html = raw.replace(/<br\s*\/?>/gi, '\n');
+      var holder = document.createElement('div');
+      holder.innerHTML = html;
+      var text = (holder.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+      if (text && text !== raw) node.textContent = text;
+    }
+
+    function pass() {
+      var desc = $('tDesc');
+      if (desc) {
+        desc.style.whiteSpace = 'pre-line';
+        fixDescription(desc);
+      }
+      fixScores(document);
+    }
+
+    var observer = new MutationObserver(function () {
+      clearTimeout(pass.timer);
+      pass.timer = setTimeout(pass, 60);
+    });
+    ['topList', 'topPreview', 'tDesc'].forEach(function (id) {
+      var node = $(id);
+      if (node) observer.observe(node, { childList: true, characterData: true, subtree: true });
+    });
+    window.addEventListener('hashchange', function () { setTimeout(pass, 400); });
+    setTimeout(pass, 500);
+  })();
+
   /* ---------------- плеер: автоскрытие панели, пропуск заставки и субтитры ---------------- */
 
   var video = $('player');
