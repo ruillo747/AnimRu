@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "ru.animru.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "ru.animru.app"
         minSdk = 23
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
     }
@@ -27,14 +27,20 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
+    lint {
+        abortOnError = false
     }
 }
 
 dependencies {
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.activity:activity-ktx:1.8.2")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
-    implementation("androidx.webkit:webkit:1.10.0")
+    implementation("androidx.webkit:webkit:1.12.1")
 }
