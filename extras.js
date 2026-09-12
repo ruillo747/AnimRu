@@ -17,7 +17,7 @@
   function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'light' ? '#eef1f7' : '#0b0d12');
+    if (meta) meta.setAttribute('content', theme === 'light' ? '#fbfbfc' : '#0a0a0b');
     var button = $('themeBtn');
     if (button) {
       button.textContent = theme === 'light' ? '☾' : '☀';
@@ -73,7 +73,7 @@
     });
   }
 
-  /* ---------------- подключение модулей: мобильные фиксы, офлайн, расписание, Kodik ---------------- */
+  /* ---------------- подключение модулей: доводка интерфейса, мобильные фиксы, офлайн, расписание, Kodik ---------------- */
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
@@ -88,10 +88,10 @@
       ].join('');
       document.head.appendChild(style);
     }
-    ['mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
+    ['polish.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=12';
+      script.src = file + '?v=13';
       script.defer = true;
       document.body.appendChild(script);
     });
