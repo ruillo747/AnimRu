@@ -1,12 +1,20 @@
-/* AnimRu: каталог Kodik в духе Anilibria — плотная сетка постеров, фильтры,
-   бесконечная подгрузка по ссылке next_page и склейка дубликатов одного тайтла.
-   Модуль забирает себе только список; страницу тайтла и плеер по-прежнему рисует kodik-browse.js. */
+/* AnimRu: каталог Kodik в духе Anilibria — сетка постеров, фильтры, бесконечная подгрузка.
+   Запросы идут только через AnimKodikNet: он сам подбирает токен и передатчик. */
 (function () {
   'use strict';
 
   var API = 'https://kodik-api.com';
-  var LIMIT = 100;
-  var WANT = 28;
+  var LIMIT = 50;
+  var WANT = 24;
+  var HOPS = 4;
+
+  /* жанры Kodik на случай, если /genres не ответит */
+  var FALLBACK_GENRES = [
+    'боевик', 'вампиры', 'военный', 'гарем', 'детектив', 'детское', 'драма', 'игры',
+    'исторический', 'комедия', 'магия', 'меха', 'мистика', 'музыка', 'пародия',
+    'приключения', 'психологическое', 'романтика', 'самураи', 'сверхъестественное',
+    'спорт', 'фантастика', 'фэнтези', 'хоррор', 'школа', 'экшен', 'этти'
+  ];
 
   var CSS = [
     '.ac-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}',
@@ -32,7 +40,7 @@
     '.ac-card:hover .ac-poster{border-color:var(--accent);transform:translateY(-3px)}',
     '.ac-poster img{width:100%;height:100%;object-fit:cover;display:block}',
     '.ac-badge{position:absolute;left:7px;top:7px;padding:3px 7px;border-radius:7px;background:rgba(10,10,11,0.82);' +
-      'color:#fff;font-size:11px;font-weight:600;letter-spacing:0.01em}',
+      'color:#fff;font-size:11px;font-weight:600}',
     '.ac-ep{position:absolute;right:7px;bottom:7px;padding:3px 7px;border-radius:7px;background:var(--accent);' +
       'color:#0a0a0b;font-size:11px;font-weight:700}',
     '.ac-name{margin:8px 2px 0;font-size:13px;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;' +
@@ -84,6 +92,7 @@
     total: 0,
     loading: false,
     done: false,
+    failed: false,
     genres: null,
     mounted: false
   };
@@ -104,21 +113,43 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  /* ---------------- данные ---------------- */
+  /* ---------------- сеть ---------------- */
 
-  function apiUrl(path, params) {
-    var url = API + path + '?';
-    var parts = [];
+  /* ждём транспорт: kodik-net.js может ещё загружаться */
+  function net(tries) {
+    if (window.AnimKodikNet) return Promise.resolve(window.AnimKodikNet);
+    if ((tries || 0) > 40) return Promise.resolve(null);
+    return new Promise(function (done) { setTimeout(done, 150); }).then(function () {
+      return net((tries || 0) + 1);
+    });
+  }
+
+  function clean(params) {
+    var out = {};
     Object.keys(params).forEach(function (key) {
       var value = params[key];
       if (value === '' || value == null || value === false) return;
-      parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+      out[key] = value;
     });
-    return url + parts.join('&');
+    return out;
   }
 
-  /* запросы идут через kodik-net.js: он подставляет рабочий токен и передатчик */
-  function load(url) {
+  function ask(path, params) {
+    return net().then(function (api) {
+      if (api && api.request) return api.request(path, clean(params));
+      /* транспорт не поднялся: пробуем напрямую, может сработать в приложении */
+      var query = Object.keys(clean(params)).map(function (key) {
+        return encodeURIComponent(key) + '=' + encodeURIComponent(String(params[key]));
+      }).join('&');
+      return fetch(API + path + '?' + query, { cache: 'no-store' }).then(function (res) { return res.json(); });
+    }).then(function (data) {
+      if (!data || data.error) throw new Error(data && data.error ? String(data.error) : 'kodik');
+      return data;
+    });
+  }
+
+  /* следующая страница приходит готовой ссылкой next_page */
+  function askUrl(url) {
     return fetch(url, { cache: 'no-store' })
       .then(function (res) { return res.json(); })
       .then(function (data) {
@@ -127,33 +158,31 @@
       });
   }
 
-  function listUrl() {
+  function listParams() {
     var f = state.filters;
-    return apiUrl('/list', {
+    return {
       limit: LIMIT,
       types: f.type || 'anime,anime-serial',
       anime_genres: f.genre,
       year: f.year,
       anime_status: f.status,
       sort: f.sort,
-      order: 'desc',
       with_material_data: true
-    });
+    };
   }
 
-  function searchUrl() {
+  function searchParams() {
     var f = state.filters;
-    return apiUrl('/search', {
+    return {
       limit: LIMIT,
       title: f.title,
       types: f.type || 'anime,anime-serial',
       year: f.year,
       with_material_data: true
-    });
+    };
   }
 
-  /* Kodik отдаёт по записи на каждую озвучку и серию, поэтому одну и ту же работу
-     склеиваем по shikimori_id (а если его нет — по названию с годом). */
+  /* Kodik даёт отдельную запись на каждую озвучку и серию — склеиваем в одну карточку */
   function keyOf(item) {
     var material = item.material_data || {};
     if (item.shikimori_id) return 'sh:' + item.shikimori_id;
@@ -175,32 +204,46 @@
     return added;
   }
 
-  /* одна страница Kodik после склейки даёт мало карточек, поэтому идём по next_page,
-     пока не наберём порцию или не закончится список */
   function fetchPortion() {
     if (state.loading || state.done) return Promise.resolve();
     state.loading = true;
+    state.failed = false;
     render();
 
     var gained = 0;
 
-    function step(url, hops) {
-      return load(url).then(function (data) {
-        if (data.total) state.total = data.total;
-        gained += absorb(data.results);
-        state.next = data.next_page || null;
-        if (!state.next) {
-          state.done = true;
-          return null;
-        }
-        if (gained >= WANT || hops >= 6) return null;
-        return step(state.next, hops + 1);
+    function absorbPage(data) {
+      if (data.total) state.total = data.total;
+      gained += absorb(data.results);
+      state.next = data.next_page || null;
+      if (!state.next) {
+        state.done = true;
+        return null;
+      }
+      return true;
+    }
+
+    function walk(hops) {
+      return askUrl(state.next).then(function (data) {
+        if (!absorbPage(data)) return null;
+        if (gained >= WANT || hops >= HOPS) return null;
+        return walk(hops + 1);
       });
     }
 
-    var start = state.next || (state.filters.title ? searchUrl() : listUrl());
-    return step(start, 0)
-      .catch(function () { state.done = true; })
+    var first = state.next
+      ? askUrl(state.next)
+      : ask(state.filters.title ? '/search' : '/list', state.filters.title ? searchParams() : listParams());
+
+    return first
+      .then(function (data) {
+        if (!absorbPage(data)) return null;
+        if (gained >= WANT) return null;
+        return walk(1);
+      })
+      .catch(function () {
+        state.failed = true;
+      })
       .then(function () {
         state.loading = false;
         render();
@@ -212,22 +255,24 @@
     state.seen = {};
     state.next = null;
     state.done = false;
+    state.failed = false;
     state.total = 0;
     fetchPortion();
   }
 
   function loadGenres() {
     if (state.genres) return Promise.resolve(state.genres);
-    return load(apiUrl('/genres', { genres_type: 'anime' }))
+    return ask('/genres', { genres_type: 'anime' })
       .then(function (data) {
-        state.genres = (data.results || [])
+        var list = (data.results || [])
           .map(function (row) { return typeof row === 'string' ? row : row.title || row.name; })
           .filter(Boolean)
           .sort();
+        state.genres = list.length ? list : FALLBACK_GENRES;
         return state.genres;
       })
       .catch(function () {
-        state.genres = [];
+        state.genres = FALLBACK_GENRES;
         return state.genres;
       });
   }
@@ -242,10 +287,7 @@
     var kind = item.type === 'anime' ? 'Фильм' : 'Сериал';
     var episodes = item.last_episode || material.episodes_aired || material.episodes_total || 0;
     var rating = material.shikimori_rating || material.kinopoisk_rating || 0;
-
-    var image = poster
-      ? '<img src="' + escapeHtml(poster) + '" alt="" loading="lazy" decoding="async">'
-      : '';
+    var image = poster ? '<img src="' + escapeHtml(poster) + '" alt="" loading="lazy" decoding="async">' : '';
 
     return '<a class="ac-card" href="#/kodik/' + encodeURIComponent(item.id) + '">' +
       '<div class="ac-poster">' + image +
@@ -287,7 +329,8 @@
     var stateLine = byId('acState');
     var count = byId('acCount');
 
-    grid.innerHTML = state.items.map(cardHtml).join('') + (state.loading ? skeletons(state.items.length ? 6 : 18) : '');
+    grid.innerHTML = state.items.map(cardHtml).join('') +
+      (state.loading ? skeletons(state.items.length ? 6 : 18) : '');
 
     if (count) {
       count.textContent = state.items.length
@@ -295,14 +338,18 @@
         : '';
     }
     if (stateLine) {
-      var empty = !state.items.length && !state.loading;
-      stateLine.hidden = !empty;
-      stateLine.textContent = empty ? 'Ничего не нашлось — попробуй сменить фильтры.' : '';
+      var message = '';
+      if (!state.loading && state.failed && !state.items.length) message = 'Kodik не ответил. Нажми «Повторить» — транспорт подберётся заново.';
+      else if (!state.loading && !state.items.length) message = 'Ничего не нашлось — попробуй сменить фильтры.';
+      stateLine.hidden = !message;
+      stateLine.textContent = message;
     }
     if (more) {
-      more.hidden = state.done || !state.items.length;
+      more.hidden = state.done && !state.failed;
       more.disabled = state.loading;
-      more.textContent = state.loading ? 'Загружаем…' : 'Показать ещё';
+      more.textContent = state.loading
+        ? 'Загружаем…'
+        : (state.failed ? 'Повторить' : 'Показать ещё');
     }
   }
 
@@ -347,7 +394,7 @@
       timer = setTimeout(function () {
         f.title = search.value.trim();
         reload();
-      }, 350);
+      }, 400);
     });
 
     [['acGenre', 'genre'], ['acYear', 'year'], ['acStatus', 'status'], ['acSort', 'sort']].forEach(function (pair) {
@@ -359,11 +406,18 @@
       });
     });
 
-    byId('acMore').addEventListener('click', function () { fetchPortion(); });
+    byId('acMore').addEventListener('click', function () {
+      if (state.failed) {
+        state.failed = false;
+        state.done = false;
+        if (window.AnimKodikNet && window.AnimKodikNet.resolve) window.AnimKodikNet.resolve(true);
+      }
+      fetchPortion();
+    });
 
-    /* бесконечная подгрузка, как в каталоге Anilibria */
     if (window.IntersectionObserver) {
       var observer = new IntersectionObserver(function (entries) {
+        if (state.failed) return;
         if (entries.some(function (entry) { return entry.isIntersecting; })) fetchPortion();
       }, { rootMargin: '600px 0px' });
       observer.observe(byId('acSentinel'));
@@ -381,23 +435,19 @@
 
     render();
     if (!state.items.length) fetchPortion();
-    else render();
   }
 
-  /* Забираем список себе: пока в корне лежит сетка kodik-browse, подменяем её разметку.
-     Старый код после этого не находит свой #kbGrid и тихо уходит в сторону. */
   function pass() {
     injectCss();
     var hash = location.hash || '';
-    var onCatalog = /^#\/kodik\/?$/.test(hash);
-    if (!onCatalog) {
+    if (!/^#\/kodik\/?$/.test(hash)) {
       state.mounted = false;
       return;
     }
     var root = byId('kbRoot');
     if (!root) return;
-    if (byId('acGrid') && state.mounted) return;
-    if (!byId('kbGrid') && !byId('acGrid') && !root.children.length) return;
+    if (state.mounted && byId('acGrid')) return;
+    if (!root.children.length) return;
     state.mounted = true;
     mount(root);
   }

@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -65,7 +66,34 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        web.settings.apply {
+        configureWeb(web)
+        refresh.setOnRefreshListener { web.reload() }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    fullscreenView != null -> web.webChromeClient?.onHideCustomView()
+                    web.canGoBack() -> web.goBack()
+                    else -> finish()
+                }
+            }
+        })
+
+        if (savedInstanceState == null) {
+            showSplash()
+            web.loadUrl(SITE)
+        } else {
+            splashClosed = true
+            /* состояние может оказаться повреждённым — тогда просто открываем сайт заново */
+            val restored = runCatching { web.restoreState(savedInstanceState) }.getOrNull()
+            if (restored == null) web.loadUrl(SITE)
+        }
+    }
+
+    /** Все настройки и обработчики в одном месте: пригодятся при пересоздании WebView. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun configureWeb(view: WebView) {
+        view.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
@@ -78,9 +106,9 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             userAgentString = "$userAgentString AnimRu/1.0"
         }
-        web.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-        web.webViewClient = object : WebViewClient() {
+        view.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
@@ -104,9 +132,18 @@ class MainActivity : AppCompatActivity() {
                 injectCosmetics(url)
                 view.postDelayed({ hideSplash() }, 260)
             }
+
+            /**
+             * Система может убить процесс отрисовки WebView, пока приложение свёрнуто.
+             * Без этой обработки второе открытие завершается падением.
+             */
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail?): Boolean {
+                recoverWeb(view)
+                return true
+            }
         }
 
-        web.webChromeClient = object : WebChromeClient() {
+        view.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
@@ -142,26 +179,26 @@ class MainActivity : AppCompatActivity() {
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
+    }
 
-        refresh.setOnRefreshListener { web.reload() }
+    /** Ставим на место погибшего WebView свежий и открываем сайт заново. */
+    private fun recoverWeb(dead: WebView) {
+        val parent = dead.parent as? ViewGroup ?: return
+        val index = parent.indexOfChild(dead)
+        val params = dead.layoutParams
+        val last = dead.url ?: SITE
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                when {
-                    fullscreenView != null -> web.webChromeClient?.onHideCustomView()
-                    web.canGoBack() -> web.goBack()
-                    else -> finish()
-                }
-            }
-        })
+        parent.removeView(dead)
+        runCatching { dead.destroy() }
 
-        if (savedInstanceState == null) {
-            showSplash()
-            web.loadUrl(SITE)
-        } else {
-            splashClosed = true
-            web.restoreState(savedInstanceState)
-        }
+        val fresh = WebView(this)
+        fresh.id = R.id.web
+        fresh.layoutParams = params
+        parent.addView(fresh, index)
+        web = fresh
+        configureWeb(fresh)
+        refresh.isRefreshing = false
+        fresh.loadUrl(last)
     }
 
     /**
@@ -191,7 +228,6 @@ class MainActivity : AppCompatActivity() {
         label.textSize = 17f
         label.setTextColor(0xFFF2F2F3.toInt())
         label.letterSpacing = 0.22f
-        label.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         val labelParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
@@ -256,7 +292,7 @@ class MainActivity : AppCompatActivity() {
             .setStartDelay(140)
             .setDuration(300)
             .withEndAction {
-                (window.decorView as ViewGroup).removeView(holder)
+                (holder.parent as? ViewGroup)?.removeView(holder)
                 splash = null
                 splashMark = null
                 splashLabel = null
@@ -281,7 +317,7 @@ class MainActivity : AppCompatActivity() {
               (document.head||document.documentElement).appendChild(s);
             })();
         """.trimIndent()
-        web.evaluateJavascript(script, null)
+        runCatching { web.evaluateJavascript(script, null) }
     }
 
     private fun quote(text: String): String =
@@ -289,7 +325,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        web.saveState(outState)
+        runCatching { web.saveState(outState) }
     }
 
     override fun onDestroy() {
