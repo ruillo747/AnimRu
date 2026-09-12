@@ -10,6 +10,7 @@
   var LS_TOKEN = 'animru:kodik-token';
   var LS_ROUTE = 'animru:kodik-route';
   var LS_FOUND = 'animru:kodik-found';
+  var LS_PROXY = 'animru:kodik-proxy';
   var TOKENS_URL = 'https://raw.githubusercontent.com/YaNesyTortiK/AnimeParsers/main/kdk_tokns/tokens.json';
   var IN_APP = /AnimRu\//.test(navigator.userAgent || '');
   var TIMEOUT = 9000;
@@ -22,9 +23,8 @@
     '77b567ec164db6ca9162d2f3dc4948c3'
   ];
 
-  /* передатчики: первый — напрямую (работает в приложении через свой прокси) */
+  /* передатчики с заголовками CORS */
   var ROUTES = [
-    { id: 'direct', wrap: function (u) { return u; } },
     { id: 'allorigins', wrap: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
     { id: 'codetabs', wrap: function (u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
     { id: 'corsproxy', wrap: function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
@@ -35,6 +35,25 @@
     { id: 'thingproxy', wrap: function (u) { return 'https://thingproxy.freeboard.io/fetch/' + u; } },
     { id: 'jina', wrap: function (u) { return 'https://r.jina.ai/' + u; } }
   ];
+
+  /* свой прокси (например Cloudflare Worker) всегда первый, прямой запрос — только в приложении */
+  (function orderRoutes() {
+    var custom = '';
+    try { custom = localStorage.getItem(LS_PROXY) || ''; } catch (e) {}
+    if (custom) {
+      ROUTES.unshift({
+        id: 'custom',
+        wrap: function (u) {
+          return custom.indexOf('{url}') >= 0
+            ? custom.replace('{url}', encodeURIComponent(u))
+            : custom + encodeURIComponent(u);
+        }
+      });
+    }
+    if (IN_APP || location.protocol === 'file:') {
+      ROUTES.unshift({ id: 'direct', wrap: function (u) { return u; } });
+    }
+  })();
 
   /* ---------------- служебное ---------------- */
 
@@ -175,9 +194,6 @@
     if (savedRoute && savedToken) pairs.push({ token: savedToken, route: savedRoute });
     /* сначала проходим все токены на одном передатчике, потом меняем передатчик */
     ROUTES.forEach(function (route) {
-      if (route.id === 'direct' && !IN_APP && location.protocol === 'https:') {
-        /* в браузере прямой запрос обычно умирает на CORS, но проверить дёшево */
-      }
       tokens.forEach(function (token) {
         pairs.push({ token: token, route: route });
       });
@@ -228,7 +244,7 @@
   }
 
   function through(url) {
-    var route = state.route || routeById(read(LS_ROUTE)) || ROUTES[1];
+    var route = state.route || routeById(read(LS_ROUTE)) || ROUTES[0];
     return withTimeout(route.wrap(url), { method: 'GET', cache: 'no-store' })
       .then(function (res) { return res.text(); })
       .then(function (text) {
@@ -291,20 +307,24 @@
     var node = document.getElementById('kbStatus');
     if (!node) return;
     if (state.ok) return;
-    node.textContent = 'Kodik не ответил ни через один из каналов. Вставь свой токен в поле ниже или открой каталог в приложении AnimRu.';
+    node.textContent = 'Kodik не ответил ни через один из каналов. Вставь свой токен в поле ниже, укажи свой прокси или открой каталог в приложении AnimRu.';
   }
 
   patchFetch();
   /* если другой модуль переопределит fetch позже — возвращаем свой перехват наверх */
   setInterval(function () {
     if (!window.fetch.__animruKodikNet) patchFetch();
-  }, 1000);
+  }, 150);
 
   window.AnimKodikNet = {
     request: request,
     resolve: resolve,
     state: function () {
       return { ok: state.ok, token: state.token, route: state.route ? state.route.id : null, reason: state.reason };
+    },
+    setProxy: function (template) {
+      write(LS_PROXY, template || '');
+      location.reload();
     },
     setToken: function (token) {
       write(LS_TOKEN, token || '');
