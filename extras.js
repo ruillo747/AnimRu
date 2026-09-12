@@ -73,7 +73,7 @@
     });
   }
 
-  /* ---------------- подключение модулей: доводка интерфейса, мобильные фиксы, офлайн, расписание, Kodik ---------------- */
+  /* ---------------- подключение модулей: доводка интерфейса, транспорт Kodik, мобильные фиксы, офлайн, расписание, каталог Kodik ---------------- */
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
@@ -88,10 +88,10 @@
       ].join('');
       document.head.appendChild(style);
     }
-    ['polish.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
+    ['polish.js', 'kodik-net.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=13';
+      script.src = file + '?v=15';
       script.defer = true;
       document.body.appendChild(script);
     });
@@ -109,7 +109,7 @@
       });
     }
 
-    /* Anilibria отдаёт описание с тегами <br>, <font>, <a>: показываем его как обычный текст */
+    /* Anilibria отдаёт описание с тегами br, font, a: показываем его как обычный текст */
     function fixDescription(node) {
       var raw = node.textContent || '';
       if (raw.indexOf('<') < 0 && raw.indexOf('&') < 0) return;

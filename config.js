@@ -12,7 +12,7 @@ window.ANIMRU_CONFIG = {
 (function () {
   if (document.querySelector('script[src*="kodik-net.js"]')) return;
   var script = document.createElement('script');
-  script.src = 'kodik-net.js?v=14';
+  script.src = 'kodik-net.js?v=15';
   script.defer = true;
   (document.head || document.documentElement).appendChild(script);
 })();
