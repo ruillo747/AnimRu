@@ -1,19 +1,18 @@
-/* AnimRu: полный экран в приложении, защита от горизонтальной прокрутки
-   и резервные пути доступа к Kodik (зеркало домена, CORS-передатчики, свой токен). */
+/* AnimRu: мобильная раскладка, полный экран в приложении и поле для своего токена Kodik.
+   Сеть до Kodik целиком отвечает kodik-net.js; здесь остался только запасной путь
+   для старых сборок, где этого модуля нет. */
 (function () {
   'use strict';
 
   var LS_TOKEN = 'animru:kodik-token';
+  var LS_ROUTE = 'animru:kodik-route';
 
   var CSS = [
-    /* только защита от выезда за экран, без вмешательства в раскладку шапки */
     'html,body{max-width:100%;overflow-x:hidden}',
     'img,video,iframe{max-width:100%}',
-    /* на телефоне шапка переносилась второй строкой и ложилась на контент */
     '@media (max-width:760px){' +
       '.topbar-inner{position:relative;flex-wrap:nowrap !important;gap:8px !important}' +
       '.lvl-chip{display:none !important}' +
-      /* прячем меню только закрытое, иначе кнопка гамбургера ничего не открывает */
       '.nav:not(.open){display:none !important}' +
       '.nav.open{display:flex !important;flex-direction:column;gap:2px;position:absolute;top:100%;left:0;right:0;' +
         'padding:8px 12px 12px;background:var(--surface);border-bottom:1px solid var(--line);z-index:60}' +
@@ -26,7 +25,22 @@
       '.icon-btn{flex:0 0 auto}' +
       '.suggest{left:0;right:0;width:auto}' +
     '}',
-    /* запасной полный экран для WebView без Fullscreen API */
+    /* каталог Kodik на телефоне: фильтры прокручиваются вбок, сетка в две карточки */
+    '@media (max-width:760px){' +
+      '.kb-filters{gap:8px}' +
+      '.kb-filters .kb-row,.kb-chips,.kb-genres{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:8px;' +
+        'padding-bottom:4px;scrollbar-width:none;-webkit-overflow-scrolling:touch}' +
+      '.kb-filters .kb-row::-webkit-scrollbar,.kb-chips::-webkit-scrollbar,.kb-genres::-webkit-scrollbar{display:none}' +
+      '.kb-filters .kb-btn,.kb-chip{flex:0 0 auto;white-space:nowrap}' +
+      '.kb-filters select,.kb-filters input{min-width:0;max-width:100%}' +
+      '.kb-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:10px}' +
+      '.kb-card-title,.kb-title{font-size:13px;line-height:1.3}' +
+      '.kb-frame,#kbFrame{width:100%;aspect-ratio:16/9;height:auto;min-height:0}' +
+      '#kbEpisodes,#kbVoices{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding-bottom:4px;' +
+        'scrollbar-width:none}' +
+      '#kbEpisodes::-webkit-scrollbar,#kbVoices::-webkit-scrollbar{display:none}' +
+      '#kbEpisodes>*,#kbVoices>*{flex:0 0 auto}' +
+    '}',
     '.fs-fallback{position:fixed !important;inset:0 !important;width:100vw !important;height:100vh !important;' +
       'max-width:none !important;margin:0 !important;padding:0 !important;border:0 !important;border-radius:0 !important;' +
       'z-index:9999 !important;background:#000 !important}',
@@ -51,28 +65,32 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  /* ---------------- Kodik: зеркало домена и CORS-передатчики ---------------- */
+  /* иконка сайта: без неё браузер каждый раз просит favicon.ico и получает 404 */
+  var ICON =
+    'data:image/svg+xml,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+      '<rect width="64" height="64" rx="14" fill="#0a0a0b"/>' +
+      '<path d="M20 46 32 18l12 28h-7l-5-12-5 12z" fill="#ff7a18"/></svg>'
+    );
+
+  function injectIcon() {
+    if (document.querySelector('link[rel="icon"]')) return;
+    var link = document.createElement('link');
+    link.rel = 'icon';
+    link.type = 'image/svg+xml';
+    link.href = ICON;
+    (document.head || document.documentElement).appendChild(link);
+  }
+
+  /* ---------------- Kodik: сеть ---------------- */
 
   var HOSTS = ['kodik-api.com', 'kodikapi.com'];
-  var LS_ROUTE = 'animru:kodik-route';
-
-  /* Браузеру API Kodik отвечает без заголовков CORS (и часто режется провайдером),
-     поэтому держим очередь передатчиков и запоминаем тот, который сработал. */
   var PROXIES = [
     'https://api.allorigins.win/raw?url=',
-    'https://api.codetabs.com/v1/proxy?quest=',
-    'https://corsproxy.io/?url=',
-    'https://proxy.cors.sh/'
+    'https://api.codetabs.com/v1/proxy?quest='
   ];
   var lastError = '';
-
-  function readRoute() {
-    try { return localStorage.getItem(LS_ROUTE) || ''; } catch (e) { return ''; }
-  }
-
-  function writeRoute(prefix) {
-    try { localStorage.setItem(LS_ROUTE, prefix); } catch (e) {}
-  }
 
   function swapHost(url) {
     for (var i = 0; i < HOSTS.length; i++) {
@@ -81,8 +99,12 @@
     return '';
   }
 
+  /* Основной транспорт — kodik-net.js (свой Cloudflare Worker и подбор токена).
+     Свою цепочку включаем только если этого модуля нет, иначе один запрос
+     проходил бы через два перехватчика подряд. */
   (function patchFetch() {
     if (!window.fetch || window.fetch.animruPatched) return;
+    if (window.AnimKodikNet) return;
     var original = window.fetch.bind(window);
 
     function once(url, init) {
@@ -92,16 +114,11 @@
       });
     }
 
-    /* Список попыток: прямой адрес, зеркало домена, затем передатчики с CORS. */
     function candidates(url) {
       var direct = [url];
       var alt = swapHost(url);
       if (alt) direct.push(alt);
       var list = [];
-      var saved = readRoute();
-      if (saved) {
-        list.push(saved === 'direct' ? url : saved + encodeURIComponent(url));
-      }
       direct.forEach(function (item) { list.push(item); });
       PROXIES.forEach(function (prefix) {
         direct.forEach(function (item) { list.push(prefix + encodeURIComponent(item)); });
@@ -109,36 +126,23 @@
       return list;
     }
 
-    function routeOf(target, url) {
-      if (target === url) return 'direct';
-      for (var i = 0; i < PROXIES.length; i++) {
-        if (target.indexOf(PROXIES[i]) === 0) return PROXIES[i];
-      }
-      return 'direct';
-    }
-
     function patched(input, init) {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
       if (!url || HOSTS.every(function (host) { return url.indexOf(host) === -1; })) {
         return original(input, init);
       }
+      if (window.AnimKodikNet && window.AnimKodikNet.request) {
+        return window.AnimKodikNet.request(url, init);
+      }
       var list = candidates(url);
       var index = 0;
 
       function attempt() {
-        if (index >= list.length) {
-          return Promise.reject(new Error(lastError || 'Kodik недоступен'));
-        }
-        var target = list[index++];
-        return once(target, init)
-          .then(function (res) {
-            writeRoute(routeOf(target, url));
-            return res;
-          })
-          .catch(function (err) {
-            lastError = err.message || String(err);
-            return attempt();
-          });
+        if (index >= list.length) return Promise.reject(new Error(lastError || 'Kodik недоступен'));
+        return once(list[index++], init).catch(function (err) {
+          lastError = err.message || String(err);
+          return attempt();
+        });
       }
 
       return attempt();
@@ -173,6 +177,9 @@
         else localStorage.removeItem(LS_TOKEN);
         localStorage.removeItem(LS_ROUTE);
       } catch (e) {}
+      if (window.AnimKodikNet && window.AnimKodikNet.setToken) {
+        window.AnimKodikNet.setToken(value);
+      }
       location.reload();
     });
     updateHint();
@@ -185,7 +192,7 @@
     var empty = status && !status.hidden && /Ничего не нашлось/.test(status.textContent || '');
     if (empty) {
       hint.textContent = lastError
-        ? 'Каталог пуст: ни один путь до Kodik не ответил (' + lastError + '). В приложении запросы идут напрямую и работают надёжнее.'
+        ? 'Каталог пуст: ни один путь до Kodik не ответил (' + lastError + ').'
         : 'Каталог пуст. Можно подставить свой токен Kodik.';
     } else {
       hint.textContent = 'Токен нужен только если каталог Kodik пустой.';
@@ -258,9 +265,6 @@
 
   /* ---------------- офлайн-копия ---------------- */
 
-  /* CDN Anilibria не отдаёт заголовки CORS, поэтому в обычном браузере
-     страница не может прочитать видео. В приложении это делает нативный прокси,
-     поэтому вне приложения честно говорим об этом вместо бесконечной ошибки. */
   var IN_APP = /AnimRu\//.test(navigator.userAgent || '');
   var APK = 'https://github.com/ruillo747/AnimRu/releases/download/android-latest/animru.apk';
 
@@ -278,14 +282,16 @@
     }
   }, true);
 
-  /* ---------------- iframe Kodik: разрешаем полный экран и даём свою кнопку ---------------- */
+  /* ---------------- iframe Kodik ---------------- */
 
+  /* Достаточно одного атрибута allow: при обоих браузер пишет предупреждение
+     «Allow attribute will take precedence over allowfullscreen». */
   function prepareFrames() {
     Array.prototype.slice.call(document.querySelectorAll('iframe')).forEach(function (frame) {
       if (frame.dataset.fsReady) return;
       frame.dataset.fsReady = '1';
       frame.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
-      frame.setAttribute('allowfullscreen', 'true');
+      if (frame.hasAttribute('allowfullscreen')) frame.removeAttribute('allowfullscreen');
     });
   }
 
@@ -304,6 +310,7 @@
 
   function pass() {
     injectCss();
+    injectIcon();
     prepareFrames();
     ensureKodikButton();
     ensureTokenBox();
