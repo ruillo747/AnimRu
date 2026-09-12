@@ -60,7 +60,7 @@
       if (input) { event.preventDefault(); input.focus(); input.select(); }
       return;
     }
-    var routes = { h: '#/', c: '#/catalog', t: '#/top', p: '#/profile', r: '#/random', s: '#/schedule' };
+    var routes = { h: '#/', c: '#/catalog', t: '#/top', p: '#/profile', r: '#/random', s: '#/schedule', k: '#/kodik' };
     var route = routes[event.key.toLowerCase()];
     if (route) { location.hash = route; }
   });
@@ -91,7 +91,7 @@
     ['offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=9';
+      script.src = file + '?v=10';
       script.defer = true;
       document.body.appendChild(script);
     });
