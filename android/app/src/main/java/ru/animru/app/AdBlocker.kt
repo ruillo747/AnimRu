@@ -26,6 +26,8 @@ class AdBlocker(private val context: Context) {
         "anilibria.top",
         "anilib.top",
         "libria.fun",
+        "anilibria.tv",
+        "wwnd.space",
         "kodik-api.com",
         "kodikapi.com",
         "kodikplayer.com",
@@ -35,6 +37,12 @@ class AdBlocker(private val context: Context) {
         "cdn.jsdelivr.net",
         "supabase.co",
         "github.io"
+    )
+
+    /** Запросы видео и плейлистов не фильтруем: от них зависит просмотр и скачивание. */
+    private val mediaPattern = Regex(
+        "\\.(m3u8|m3u|ts|m4s|mp4|webm|mkv|key|vtt|srt|ass)(\\?|$)",
+        RegexOption.IGNORE_CASE
     )
 
     val stylesheet: String
@@ -161,6 +169,7 @@ class AdBlocker(private val context: Context) {
     }
 
     fun shouldBlock(url: String, pageHost: String?): Boolean {
+        if (mediaPattern.containsMatchIn(url)) return false
         val host = runCatching { URL(url).host }.getOrNull() ?: return false
         if (essentialHosts.any { host == it || host.endsWith(".$it") }) return false
         if (allowRules.any { it.matches(url, pageHost) }) return false

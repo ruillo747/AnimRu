@@ -21,7 +21,7 @@
     var button = $('themeBtn');
     if (button) {
       button.textContent = theme === 'light' ? '☾' : '☀';
-      button.title = theme === 'light' ? 'Тẹ́мная тема' : 'Светлая тема';
+      button.title = theme === 'light' ? 'Темная тема' : 'Светлая тема';
     }
   }
 
@@ -91,7 +91,7 @@
     ['offline.js', 'schedule.js', 'kodik-browse.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=10';
+      script.src = file + '?v=11';
       script.defer = true;
       document.body.appendChild(script);
     });
