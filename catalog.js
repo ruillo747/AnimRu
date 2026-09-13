@@ -8,12 +8,15 @@
   var WANT = 24;
   var HOPS = 4;
 
-  /* жанры Kodik на случай, если /genres не ответит */
-  var FALLBACK_GENRES = [
-    'боевик', 'вампиры', 'военный', 'гарем', 'детектив', 'детское', 'драма', 'игры',
-    'исторический', 'комедия', 'магия', 'меха', 'мистика', 'музыка', 'пародия',
-    'приключения', 'психологическое', 'романтика', 'самураи', 'сверхъестественное',
-    'спорт', 'фантастика', 'фэнтези', 'хоррор', 'школа', 'экшен', 'этти'
+  /* Аниме-жанры из документации Kodik: идут в anime_genres и чувствительны к регистру.
+     Обычные жанры («драма», «боевик» и т.д., с маленькой буквы) идут в genres. */
+  var ANIME_GENRES = [
+    'Боевые искусства', 'Вампиры', 'Военное', 'Гарем', 'Демоны', 'Детектив',
+    'Детское', 'Драма', 'Игры', 'Исторический', 'Комедия', 'Магия', 'Меха',
+    'Мистика', 'Музыка', 'Пародия', 'Повседневность', 'Приключения',
+    'Психологическое', 'Романтика', 'Самураи', 'Сверхъестественное', 'Сейнен',
+    'Сёдзё', 'Сёнен', 'Спорт', 'Триллер', 'Ужасы', 'Фантастика', 'Фэнтези',
+    'Школа', 'Экшен', 'Этти'
   ];
 
   var CSS = [
@@ -94,6 +97,7 @@
     done: false,
     failed: false,
     genres: null,
+    genreKey: '',
     mounted: false
   };
 
@@ -111,6 +115,32 @@
     style.id = 'catalog-css';
     style.textContent = CSS;
     (document.head || document.documentElement).appendChild(style);
+  }
+
+  /* ---------------- жанры ---------------- */
+
+  /* аниме-жанр идёт в anime_genres, остальное — в genres */
+  function genreKeyFor(genre) {
+    var name = String(genre || '');
+    var hit = false;
+    ANIME_GENRES.forEach(function (known) {
+      if (known.toLowerCase() === name.toLowerCase()) hit = true;
+    });
+    return hit && name[0] === name[0].toUpperCase() ? 'anime_genres' : 'genres';
+  }
+
+  function genreValue(genre, key) {
+    var name = String(genre || '');
+    if (key === 'genres') return name.toLowerCase();
+    var exact = name;
+    ANIME_GENRES.forEach(function (known) {
+      if (known.toLowerCase() === name.toLowerCase()) exact = known;
+    });
+    return exact;
+  }
+
+  function otherKey(key) {
+    return key === 'anime_genres' ? 'genres' : 'anime_genres';
   }
 
   /* ---------------- сеть ---------------- */
@@ -138,8 +168,9 @@
     return net().then(function (api) {
       if (api && api.request) return api.request(path, clean(params));
       /* транспорт не поднялся: пробуем напрямую, может сработать в приложении */
-      var query = Object.keys(clean(params)).map(function (key) {
-        return encodeURIComponent(key) + '=' + encodeURIComponent(String(params[key]));
+      var ready = clean(params);
+      var query = Object.keys(ready).map(function (key) {
+        return encodeURIComponent(key) + '=' + encodeURIComponent(String(ready[key]));
       }).join('&');
       return fetch(API + path + '?' + query, { cache: 'no-store' }).then(function (res) { return res.json(); });
     }).then(function (data) {
@@ -158,28 +189,32 @@
       });
   }
 
-  function listParams() {
+  function listParams(key) {
     var f = state.filters;
-    return {
+    var params = {
       limit: LIMIT,
       types: f.type || 'anime,anime-serial',
-      anime_genres: f.genre,
       year: f.year,
       anime_status: f.status,
       sort: f.sort,
+      order: 'desc',
       with_material_data: true
     };
+    if (f.genre && key) params[key] = genreValue(f.genre, key);
+    return params;
   }
 
-  function searchParams() {
+  function searchParams(key) {
     var f = state.filters;
-    return {
+    var params = {
       limit: LIMIT,
       title: f.title,
       types: f.type || 'anime,anime-serial',
       year: f.year,
       with_material_data: true
     };
+    if (f.genre && key) params[key] = genreValue(f.genre, key);
+    return params;
   }
 
   /* Kodik даёт отдельную запись на каждую озвучку и серию — склеиваем в одну карточку */
@@ -202,6 +237,37 @@
       added += 1;
     });
     return added;
+  }
+
+  /* первая страница: пробуем подходящий параметр жанра, при пустоте — второй */
+  function firstPage() {
+    var f = state.filters;
+    var path = f.title ? '/search' : '/list';
+    var build = f.title ? searchParams : listParams;
+
+    if (!f.genre) return ask(path, build(''));
+
+    var key = state.genreKey || genreKeyFor(f.genre);
+    return ask(path, build(key)).then(function (data) {
+      if ((data.results || []).length || state.genreKey) {
+        state.genreKey = key;
+        return data;
+      }
+      var alt = otherKey(key);
+      return ask(path, build(alt))
+        .then(function (second) {
+          if ((second.results || []).length) {
+            state.genreKey = alt;
+            return second;
+          }
+          state.genreKey = key;
+          return data;
+        })
+        .catch(function () {
+          state.genreKey = key;
+          return data;
+        });
+    });
   }
 
   function fetchPortion() {
@@ -231,9 +297,7 @@
       });
     }
 
-    var first = state.next
-      ? askUrl(state.next)
-      : ask(state.filters.title ? '/search' : '/list', state.filters.title ? searchParams() : listParams());
+    var first = state.next ? askUrl(state.next) : firstPage();
 
     return first
       .then(function (data) {
@@ -257,24 +321,38 @@
     state.done = false;
     state.failed = false;
     state.total = 0;
+    state.genreKey = '';
     fetchPortion();
   }
 
-  function loadGenres() {
-    if (state.genres) return Promise.resolve(state.genres);
-    return ask('/genres', { genres_type: 'anime' })
-      .then(function (data) {
-        var list = (data.results || [])
-          .map(function (row) { return typeof row === 'string' ? row : row.title || row.name; })
-          .filter(Boolean)
-          .sort();
-        state.genres = list.length ? list : FALLBACK_GENRES;
-        return state.genres;
-      })
-      .catch(function () {
-        state.genres = FALLBACK_GENRES;
-        return state.genres;
+  /* списка жанров в API нет (только /search, /list, /translations),
+     так что берём аниме-жанры из документации и дополняем тем, что пришло в material_data */
+  function collectGenres() {
+    var map = {};
+    ANIME_GENRES.forEach(function (genre) { map[genre] = true; });
+    state.items.forEach(function (item) {
+      var material = item.material_data || {};
+      (material.anime_genres || []).forEach(function (genre) {
+        var name = String(genre || '').trim();
+        if (name && name.toLowerCase() !== 'аниме') map[name] = true;
       });
+    });
+    var list = Object.keys(map).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+    var same = state.genres && state.genres.length === list.length &&
+      state.genres.every(function (genre, index) { return genre === list[index]; });
+    state.genres = list;
+    return !same;
+  }
+
+  function fillGenreSelect() {
+    var select = byId('acGenre');
+    if (!select) return;
+    var current = state.filters.genre;
+    select.innerHTML = '<option value="">Любой жанр</option>' +
+      (state.genres || []).map(function (genre) {
+        return '<option value="' + escapeHtml(genre) + '">' + escapeHtml(genre) + '</option>';
+      }).join('');
+    select.value = current;
   }
 
   /* ---------------- разметка ---------------- */
@@ -332,6 +410,8 @@
     grid.innerHTML = state.items.map(cardHtml).join('') +
       (state.loading ? skeletons(state.items.length ? 6 : 18) : '');
 
+    if (collectGenres()) fillGenreSelect();
+
     if (count) {
       count.textContent = state.items.length
         ? state.items.length + ' из ' + (state.total ? state.total.toLocaleString('ru-RU') : '—')
@@ -377,10 +457,13 @@
       '<button type="button" class="ac-more" id="acMore" hidden>Показать ещё</button>' +
       '<div id="acSentinel" aria-hidden="true"></div>';
 
+    collectGenres();
+    fillGenreSelect();
+
     byId('acChips').addEventListener('click', function (event) {
-      var chip = event.target.closest('.ac-chip');
+      var chip = event.target && event.target.closest ? event.target.closest('.ac-chip') : null;
       if (!chip) return;
-      f.type = chip.dataset.type || '';
+      f.type = chip.getAttribute('data-type') || '';
       Array.prototype.slice.call(root.querySelectorAll('.ac-chip')).forEach(function (node) {
         node.setAttribute('aria-pressed', node === chip ? 'true' : 'false');
       });
@@ -423,16 +506,6 @@
       observer.observe(byId('acSentinel'));
     }
 
-    loadGenres().then(function (list) {
-      var select = byId('acGenre');
-      if (!select) return;
-      select.innerHTML = '<option value="">Любой жанр</option>' +
-        list.map(function (genre) {
-          return '<option value="' + escapeHtml(genre) + '"' + (genre === f.genre ? ' selected' : '') + '>' +
-            escapeHtml(genre) + '</option>';
-        }).join('');
-    });
-
     render();
     if (!state.items.length) fetchPortion();
   }
@@ -459,16 +532,22 @@
       setTimeout(pass, 120);
       setTimeout(pass, 600);
     });
-    var observer = new MutationObserver(function () {
-      clearTimeout(start.timer);
-      start.timer = setTimeout(pass, 120);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (document.body && window.MutationObserver) {
+      var observer = new MutationObserver(function () {
+        clearTimeout(start.timer);
+        start.timer = setTimeout(pass, 120);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
     setTimeout(pass, 800);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 
-  window.AnimCatalog = { reload: reload, state: function () { return state; } };
+  window.AnimCatalog = {
+    reload: reload,
+    genres: function () { return state.genres || []; },
+    state: function () { return state; }
+  };
 })();
