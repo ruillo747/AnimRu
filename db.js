@@ -67,8 +67,46 @@
 
   /* ---------------- облачный режим ---------------- */
 
-  function api(path, opts) {
-    opts = opts || {};
+  /* Обновление токена: без него любой 401 выбрасывал пользователя через час. */
+  var refreshing = null;
+
+  function refreshSession() {
+    if (!CLOUD) return Promise.resolve(null);
+    if (refreshing) return refreshing;
+    var s = getSession();
+    if (!s || !s.refresh) return Promise.resolve(null);
+
+    refreshing = fetch(BASE + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { apikey: ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: s.refresh })
+    })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (payload) {
+        if (!payload || !payload.access_token) return null;
+        var next = getSession() || {};
+        next.token = payload.access_token;
+        next.refresh = payload.refresh_token || next.refresh || '';
+        if (payload.user) {
+          var meta = payload.user.user_metadata || {};
+          next.user = {
+            id: payload.user.id,
+            email: payload.user.email || (next.user && next.user.email) || '',
+            name: meta.name || (next.user && next.user.name) || (payload.user.email || '').split('@')[0],
+            provider: (payload.user.app_metadata && payload.user.app_metadata.provider) ||
+              (next.user && next.user.provider) || 'email'
+          };
+        }
+        setSession(next);
+        return next.token;
+      })
+      .catch(function () { return null; })
+      .then(function (token) { refreshing = null; return token; });
+
+    return refreshing;
+  }
+
+  function request(path, opts) {
     var s = getSession();
     var headers = {
       apikey: ANON,
@@ -81,19 +119,42 @@
     return fetch(BASE + path, {
       method: opts.method || 'GET',
       headers: headers,
-      body: opts.body ? JSON.stringify(opts.body) : undefined
-    }).then(function (res) {
-      return res.text().then(function (text) {
-        var data = null;
-        try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
-        if (!res.ok) {
-          if (res.status === 401 && s && s.token) setSession(null);
-          var msg = (data && (data.msg || data.message || data.error_description || data.error || data.hint)) || ('Ошибка ' + res.status);
-          throw new Error(ruError(msg));
-        }
-        return data;
-      });
-    }, function () { throw new Error('Нет связи с сервером'); });
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      keepalive: !!opts.keepalive
+    });
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var attempted = false;
+
+    function run() {
+      return request(path, opts).then(function (res) {
+        return res.text().then(function (text) {
+          var data = null;
+          try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+
+          if (!res.ok) {
+            var session = getSession();
+            /* токен мог просто истечь — обновляем и повторяем запрос один раз */
+            if (res.status === 401 && !opts.anon && !attempted && session && session.refresh) {
+              attempted = true;
+              return refreshSession().then(function (token) {
+                if (token) return run();
+                setSession(null);
+                throw new Error('Сессия истекла, войдите снова');
+              });
+            }
+            if (res.status === 401 && !opts.anon && session && session.token) setSession(null);
+            var msg = (data && (data.msg || data.message || data.error_description || data.error || data.hint)) || ('Ошибка ' + res.status);
+            throw new Error(ruError(msg));
+          }
+          return data;
+        });
+      }, function () { throw new Error('Нет связи с сервером'); });
+    }
+
+    return run();
   }
 
   function saveCloudSession(payload, fallbackName) {
@@ -135,12 +196,18 @@
     if (!token) return;
     history.replaceState(null, '', location.pathname + location.search + '#/');
     fetch(BASE + '/auth/v1/user', { headers: { apikey: ANON, Authorization: 'Bearer ' + token } })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (user) {
+        if (!user || !user.id) throw new Error('Сервер не вернул профиль');
         saveCloudSession({ access_token: token, refresh_token: params.get('refresh_token') || '', user: user });
         return upsertProfile({});
       })
-      .catch(function () {});
+      .catch(function () {
+        /* не молчим: иначе пользователь видит главную и не понимает, почему не вошёл */
+        if (window.AnimAuth && window.AnimAuth.toast) {
+          window.AnimAuth.toast('Не удалось завершить вход, попробуйте ещё раз');
+        }
+      });
   }
 
   /* ---------------- локальный режим ---------------- */
@@ -206,6 +273,16 @@
       });
   }
 
+  /* сравнение без раннего выхода, чтобы не течь по времени выполнения */
+  function equalHex(a, b) {
+    a = String(a || '');
+    b = String(b || '');
+    if (a.length !== b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return diff === 0;
+  }
+
   function localSignUp(data) {
     var email = String(data.email).trim().toLowerCase();
     return store('users', 'readonly', function (s) { return s.get(email); }).then(function (found) {
@@ -232,7 +309,7 @@
     return store('users', 'readonly', function (s) { return s.get(email); }).then(function (found) {
       if (!found) throw new Error('Аккаунт не найден');
       return hashPassword(data.password, found.salt).then(function (creds) {
-        if (creds.hash !== found.hash) throw new Error('Неверный пароль');
+        if (!equalHex(creds.hash, found.hash)) throw new Error('Неверный пароль');
         setSession({ token: '', user: { id: email, email: email, name: found.name, provider: 'local' } });
         return me();
       });
@@ -284,6 +361,9 @@
     /* Вход через Google или Discord (только облачный режим). */
     signInWith: function (provider) {
       if (!CLOUD) return Promise.reject(new Error('Вход через сервисы работает только с облачной базой'));
+      if (['google', 'discord'].indexOf(String(provider)) === -1) {
+        return Promise.reject(new Error('Неизвестный способ входа'));
+      }
       var back = location.origin + location.pathname;
       location.href = BASE + '/auth/v1/authorize?provider=' + encodeURIComponent(provider) +
         '&redirect_to=' + encodeURIComponent(back);
@@ -312,6 +392,7 @@
       if (!user) return Promise.reject(new Error('Сначала войдите'));
       var clean = String(name || '').trim();
       if (clean.length < 2) return Promise.reject(new Error('Имя — минимум 2 символа'));
+      if (clean.length > 32) return Promise.reject(new Error('Имя — не больше 32 символов'));
       var s = getSession();
       s.user.name = clean;
       setSession(s);
@@ -342,7 +423,7 @@
         .then(function (rows) { return rows && rows[0] ? rows[0] : null; });
     },
 
-    pushProgress: function (data) {
+    pushProgress: function (data, options) {
       var user = me();
       if (!user) return Promise.resolve(null);
       var row = {
@@ -353,30 +434,40 @@
         updated_at: nowIso()
       };
       if (!CLOUD) return store('progress', 'readwrite', function (s) { return s.put(row); });
-      return upsertProfile({ gamify: row.gamify, watch: row.watch, lists: row.lists });
+      /* keepalive нужен для сохранения при закрытии страницы */
+      var patch = { gamify: row.gamify, watch: row.watch, lists: row.lists };
+      if (options && options.keepalive) {
+        var profile = { id: user.id, email: user.email, name: user.name, updated_at: row.updated_at };
+        for (var key in patch) {
+          if (Object.prototype.hasOwnProperty.call(patch, key)) profile[key] = patch[key];
+        }
+        return api('/rest/v1/profiles?on_conflict=id', {
+          method: 'POST',
+          keepalive: true,
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [profile]
+        });
+      }
+      return upsertProfile(patch);
     },
 
-    /* Оценки тайтлов. В локальном режиме считается только своя оценка. */
+    /* Оценки тайтлов. Среднее считает база (rating_summary из supabase/hardening.sql). */
     getRating: function (titleId) {
-      var user = me();
       if (!CLOUD) {
         return Promise.resolve({ avg: null, count: 0, mine: null, cloud: false });
       }
-      return api('/rest/v1/ratings?title_id=eq.' + encodeURIComponent(titleId) + '&select=value,user_id')
-        .then(function (rows) {
-          rows = rows || [];
-          var sum = 0, mine = null;
-          for (var i = 0; i < rows.length; i++) {
-            sum += Number(rows[i].value) || 0;
-            if (user && rows[i].user_id === user.id) mine = Number(rows[i].value);
-          }
-          return {
-            avg: rows.length ? Math.round((sum / rows.length) * 10) / 10 : null,
-            count: rows.length,
-            mine: mine,
-            cloud: true
-          };
-        });
+      return api('/rest/v1/rpc/rating_summary', {
+        method: 'POST',
+        body: { p_title_id: String(titleId) }
+      }).then(function (rows) {
+        var row = Array.isArray(rows) ? rows[0] : rows;
+        return {
+          avg: row && row.avg_value != null ? Number(row.avg_value) : null,
+          count: row && row.votes != null ? Number(row.votes) : 0,
+          mine: row && row.mine != null ? Number(row.mine) : null,
+          cloud: true
+        };
+      });
     },
 
     setRating: function (titleId, value) {
@@ -391,10 +482,13 @@
       }).then(function () { return { mine: v, cloud: true }; });
     },
 
-    listComments: function (titleId) {
+    listComments: function (titleId, options) {
       if (!CLOUD) return Promise.resolve(null);
+      var limit = Math.max(1, Math.min(100, Number(options && options.limit) || 20));
+      var offset = Math.max(0, Number(options && options.offset) || 0);
       return api('/rest/v1/comments?title_id=eq.' + encodeURIComponent(titleId) +
-        '&select=id,user_id,name,body,created_at&order=created_at.desc&limit=100');
+        '&select=id,user_id,name,body,created_at&order=created_at.desc' +
+        '&limit=' + limit + '&offset=' + offset);
     },
 
     addComment: function (titleId, body) {
@@ -404,6 +498,7 @@
       var text = String(body || '').trim();
       if (text.length < 2) return Promise.reject(new Error('Слишком короткий комментарий'));
       if (text.length > 1000) return Promise.reject(new Error('Не больше 1000 символов'));
+      /* name и user_id подставляет триггер в базе, иначе имя можно было подменить */
       return api('/rest/v1/comments', {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
@@ -413,6 +508,7 @@
 
     deleteComment: function (id) {
       if (!CLOUD) return Promise.reject(new Error('Комментарии работают только с облачной базой'));
+      if (!me()) return Promise.reject(new Error('Сначала войдите'));
       return api('/rest/v1/comments?id=eq.' + encodeURIComponent(id), { method: 'DELETE' })
         .then(function () { return true; });
     }

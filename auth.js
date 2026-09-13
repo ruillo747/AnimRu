@@ -78,9 +78,7 @@
 
   if (modal) {
     modal.addEventListener('click', function (event) {
-      if (event.target.closest('[data-auth-close]')) closeModal();
-    });
-    modal.addEventListener('click', function (event) {
+      if (event.target.closest('[data-auth-close]')) { closeModal(); return; }
       var oauthBtn = event.target.closest('[data-oauth]');
       if (!oauthBtn) return;
       DB.signInWith(oauthBtn.getAttribute('data-oauth')).catch(function (err) { setError(err.message); });
@@ -243,6 +241,15 @@
     toast('Файл с прогрессом скачан');
   }
 
+  /* формат проверяем до записи: раньше любой json затирал прогресс без вопросов */
+  function looksLikeBackup(data) {
+    if (!data || typeof data !== 'object') return false;
+    if (data.app && data.app !== 'AnimRu') return false;
+    return ['gamify', 'watch', 'lists'].some(function (key) {
+      return data[key] && typeof data[key] === 'object';
+    });
+  }
+
   function importBackup() {
     var input = document.createElement('input');
     input.type = 'file';
@@ -252,6 +259,8 @@
       if (!file) return;
       file.text().then(function (text) {
         var data = JSON.parse(text);
+        if (!looksLikeBackup(data)) throw new Error('bad-format');
+        if (!window.confirm('Заменить текущие уровни, историю просмотра и списки данными из файла?')) return;
         if (data.gamify) localStorage.setItem(LS_GAMIFY, JSON.stringify(data.gamify));
         if (data.watch) localStorage.setItem(LS_WATCH, JSON.stringify(data.watch));
         if (data.lists) localStorage.setItem(LS_LISTS, JSON.stringify(data.lists));
@@ -277,9 +286,25 @@
     return (Number(gamify.level) || 0) * 100000 + (Number(gamify.xp) || 0);
   }
 
-  function pushNow() {
+  /* Историю просмотра склеиваем по сериям, а не затираем целиком:
+     иначе просмотренное на втором устройстве терялось. */
+  function mergeWatch(local, remote) {
+    if (!remote || typeof remote !== 'object') return local;
+    if (!local || typeof local !== 'object') return remote;
+    var out = {};
+    Object.keys(remote).forEach(function (key) { out[key] = remote[key]; });
+    Object.keys(local).forEach(function (key) {
+      var mine = local[key];
+      var theirs = out[key];
+      if (!theirs) { out[key] = mine; return; }
+      out[key] = (Number(mine && mine.at) || 0) >= (Number(theirs.at) || 0) ? mine : theirs;
+    });
+    return out;
+  }
+
+  function pushNow(options) {
     if (!DB.me()) return Promise.resolve(null);
-    return DB.pushProgress(localSnapshot());
+    return DB.pushProgress(localSnapshot(), options);
   }
 
   var pushTimer = null;
@@ -293,9 +318,15 @@
     if (!DB.me()) return Promise.resolve(null);
     return DB.pullProgress().then(function (remote) {
       var local = localSnapshot();
-      if (remote && weight(remote.gamify) > weight(local.gamify)) {
+      var merged = mergeWatch(local.watch, remote && remote.watch);
+      var remoteAhead = remote && weight(remote.gamify) > weight(local.gamify);
+
+      if (merged) {
+        try { localStorage.setItem(LS_WATCH, JSON.stringify(merged)); } catch (e) {}
+      }
+
+      if (remoteAhead) {
         if (remote.gamify) localStorage.setItem(LS_GAMIFY, JSON.stringify(remote.gamify));
-        if (remote.watch) localStorage.setItem(LS_WATCH, JSON.stringify(remote.watch));
         if (remote.lists) localStorage.setItem(LS_LISTS, JSON.stringify(remote.lists));
         toast('Загружен сохранённый прогресс');
         setTimeout(function () { location.reload(); }, 800);
@@ -309,8 +340,15 @@
     window.Gamify.subscribe(function () { schedulePush(); });
   }
   document.addEventListener('animru:lists-changed', schedulePush);
-  window.addEventListener('beforeunload', function () {
-    if (DB.me()) { try { pushNow(); } catch (e) {} }
+
+  /* при закрытии страницы обычный fetch обрывается — шлём с keepalive */
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden' && DB.me()) {
+      pushNow({ keepalive: true }).catch(function () {});
+    }
+  });
+  window.addEventListener('pagehide', function () {
+    if (DB.me()) { pushNow({ keepalive: true }).catch(function () {}); }
   });
 
   DB.subscribe(renderAccount);
