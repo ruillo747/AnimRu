@@ -1,7 +1,7 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша. */
 
-const CACHE = 'animru-v28'
+const CACHE = 'animru-v30'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
@@ -40,8 +40,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
+    caches.keys()
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE && key !== OFFLINE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   )
