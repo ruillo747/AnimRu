@@ -1,5 +1,6 @@
-/* AnimRu: каталог Kodik — сетка постеров, расширенные фильтры по документации API,
-   бесконечная подгрузка. Запросы идут только через AnimKodikNet: он сам подбирает токен и передатчик. */
+/* AnimRu: каталог (Кодик) — верстка в стиле каталога Анилибрии: боковая панель фильтров,
+   сетка постеров с оценкой, чипсы активных фильтров, бесконечная подгрузка.
+   Запросы идут только через AnimKodikNet: он сам подбирает токен и передатчик. */
 (function () {
   'use strict';
 
@@ -8,6 +9,7 @@
   var WANT = 24;
   var HOPS = 4;
   var LS = 'animru:catalog';
+  var PAGE_TITLE = 'Каталог (Кодик)';
 
   /* Аниме-жанры из документации Kodik: идут в anime_genres и чувствительны к регистру.
      Обычные жанры («драма», «боевик» и т.д., с маленькой буквы) идут в genres. */
@@ -21,60 +23,90 @@
   ];
 
   var CSS = [
-    '.ac-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}',
-    '.ac-head h1{margin:0;font-size:26px;letter-spacing:-0.01em}',
-    '.ac-count{font-size:13px;color:var(--muted)}',
-    '.ac-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}',
-    '.ac-search{flex:1 1 220px;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;' +
+    /* шапка страницы */
+    '.ac-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 18px}',
+    '.ac-top h1{margin:0;font-size:28px;line-height:1.15;letter-spacing:-0.02em}',
+    '.ac-count{font-size:13px;color:var(--dim,var(--muted))}',
+    '.ac-top-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+    '.ac-search{width:260px;max-width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:999px;' +
       'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px}',
-    '.ac-studio{flex:0 1 190px;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;' +
-      'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px}',
-    '.ac-search:focus,.ac-studio:focus{outline:none;border-color:var(--accent)}',
-    '.ac-sel{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);' +
-      'color:var(--text);font:inherit;font-size:13px;max-width:100%}',
-    '.ac-sel:focus{outline:none;border-color:var(--accent)}',
-    '.ac-toggles{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:0 2px 14px;font-size:13px;color:var(--muted)}',
-    '.ac-toggles label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}',
-    '.ac-toggles input{accent-color:var(--accent)}',
-    '.ac-reset{margin-left:auto;padding:7px 12px;border:1px solid var(--line);border-radius:999px;' +
-      'background:var(--surface-2);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}',
+    '.ac-search:focus{outline:none;border-color:var(--accent)}',
+    '.ac-filters-btn{display:none;padding:10px 16px;border:1px solid var(--line);border-radius:999px;' +
+      'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px;cursor:pointer}',
+
+    /* двухколоночная раскладка как в Анилибрии */
+    '.ac-layout{display:grid;grid-template-columns:268px minmax(0,1fr);gap:26px;align-items:start}',
+    '.ac-side{position:sticky;top:calc(var(--header-h,64px) + 16px);display:grid;gap:16px;padding:18px;' +
+      'border:1px solid var(--line);border-radius:16px;background:var(--surface);max-height:calc(100vh - var(--header-h,64px) - 40px);' +
+      'overflow:auto;scrollbar-width:thin}',
+    '.ac-group{display:grid;gap:7px}',
+    '.ac-label{font-size:11.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--dim,var(--muted))}',
+    '.ac-sel,.ac-text{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;' +
+      'background:var(--surface-2);color:var(--text);font:inherit;font-size:13.5px}',
+    '.ac-sel:focus,.ac-text:focus{outline:none;border-color:var(--accent)}',
+    '.ac-types{display:flex;gap:6px;flex-wrap:wrap}',
+    '.ac-type{flex:1 1 auto;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);' +
+      'color:var(--muted);font:inherit;font-size:13px;cursor:pointer;transition:all var(--t-fast,120ms) ease}',
+    '.ac-type:hover{color:var(--text);border-color:var(--accent)}',
+    '.ac-type[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#0a0a0b;font-weight:600}',
+    '.ac-checks{display:grid;gap:9px;font-size:13px;color:var(--muted)}',
+    '.ac-checks label{display:flex;align-items:center;gap:8px;cursor:pointer}',
+    '.ac-checks input{accent-color:var(--accent)}',
+    '.ac-reset{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;' +
+      'color:var(--muted);font:inherit;font-size:13px;cursor:pointer}',
     '.ac-reset:hover{color:var(--text);border-color:var(--accent)}',
-    '.ac-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}',
-    '.ac-chip{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);' +
-      'color:var(--muted);font:inherit;font-size:13px;cursor:pointer;transition:color var(--t-fast,120ms) ease,' +
-      'border-color var(--t-fast,120ms) ease}',
-    '.ac-chip:hover{color:var(--text);border-color:var(--accent)}',
-    '.ac-chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#0a0a0b;font-weight:600}',
-    '.ac-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(156px,1fr));gap:14px}',
+
+    /* активные фильтры */
+    '.ac-active{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}',
+    '.ac-pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line);' +
+      'border-radius:999px;background:var(--surface-2);color:var(--text);font-size:12.5px}',
+    '.ac-pill button{border:0;background:transparent;color:var(--dim,var(--muted));font:inherit;font-size:14px;' +
+      'line-height:1;cursor:pointer;padding:0}',
+    '.ac-pill button:hover{color:var(--accent)}',
+
+    /* сетка постеров */
+    '.ac-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:20px 16px}',
     '.ac-card{display:block;color:inherit;text-decoration:none}',
-    '.ac-poster{position:relative;aspect-ratio:2/3;border-radius:12px;overflow:hidden;background:var(--surface-2);' +
-      'border:1px solid var(--line);transition:border-color var(--t-fast,120ms) ease,transform var(--t,180ms) ease}',
-    '.ac-card:hover .ac-poster{border-color:var(--accent);transform:translateY(-3px)}',
+    '.ac-poster{position:relative;aspect-ratio:350/500;border-radius:14px;overflow:hidden;background:var(--surface-2);' +
+      'box-shadow:0 6px 20px rgba(0,0,0,0.28);transition:transform var(--t,200ms) ease,box-shadow var(--t,200ms) ease}',
+    '.ac-card:hover .ac-poster{transform:translateY(-4px);box-shadow:0 14px 30px rgba(0,0,0,0.4)}',
     '.ac-poster img{width:100%;height:100%;object-fit:cover;display:block}',
-    '.ac-badge{position:absolute;left:7px;top:7px;padding:3px 7px;border-radius:7px;background:rgba(10,10,11,0.82);' +
-      'color:#fff;font-size:11px;font-weight:600}',
-    '.ac-ep{position:absolute;right:7px;bottom:7px;padding:3px 7px;border-radius:7px;background:var(--accent);' +
-      'color:#0a0a0b;font-size:11px;font-weight:700}',
-    '.ac-name{margin:8px 2px 0;font-size:13px;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;' +
-      '-webkit-box-orient:vertical;overflow:hidden}',
-    '.ac-meta{margin:3px 2px 0;font-size:12px;color:var(--muted)}',
-    '.ac-skel{aspect-ratio:2/3;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);' +
+    '.ac-poster::after{content:"";position:absolute;inset:auto 0 0;height:46%;pointer-events:none;' +
+      'background:linear-gradient(to top,rgba(8,8,10,0.85),rgba(8,8,10,0))}',
+    '.ac-rate{position:absolute;right:8px;top:8px;z-index:2;display:inline-flex;align-items:center;gap:3px;' +
+      'padding:3px 8px;border-radius:999px;background:rgba(10,10,11,0.78);backdrop-filter:blur(4px);' +
+      'color:#ffd166;font-size:11.5px;font-weight:700}',
+    '.ac-kind{position:absolute;left:8px;top:8px;z-index:2;padding:3px 8px;border-radius:999px;' +
+      'background:rgba(10,10,11,0.72);backdrop-filter:blur(4px);color:#fff;font-size:11px;font-weight:600}',
+    '.ac-ep{position:absolute;left:10px;bottom:9px;z-index:2;color:#fff;font-size:12px;font-weight:600;' +
+      'text-shadow:0 1px 6px rgba(0,0,0,0.6)}',
+    '.ac-status{position:absolute;right:10px;bottom:9px;z-index:2;color:#dcdce3;font-size:11.5px;' +
+      'text-shadow:0 1px 6px rgba(0,0,0,0.6)}',
+    '.ac-name{margin:9px 2px 0;font-size:13.5px;font-weight:600;line-height:1.3;display:-webkit-box;' +
+      '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+    '.ac-card:hover .ac-name{color:var(--accent)}',
+    '.ac-meta{margin:4px 2px 0;font-size:12px;color:var(--dim,var(--muted));display:-webkit-box;' +
+      '-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}',
+    '.ac-skel{aspect-ratio:350/500;border-radius:14px;background:var(--surface-2);' +
       'animation:animru-skeleton 1.1s ease-in-out infinite}',
-    '.ac-state{margin:18px 2px;font-size:14px;color:var(--muted)}',
-    '.ac-more{display:block;width:100%;margin:18px 0 4px;padding:11px 16px;border:1px solid var(--line);' +
-      'border-radius:10px;background:var(--surface-2);color:var(--text);font:inherit;font-size:14px;cursor:pointer}',
+    '.ac-state{margin:22px 2px;font-size:14px;color:var(--muted)}',
+    '.ac-more{display:block;width:100%;margin:22px 0 4px;padding:12px 16px;border:1px solid var(--line);' +
+      'border-radius:12px;background:var(--surface-2);color:var(--text);font:inherit;font-size:14px;cursor:pointer}',
     '.ac-more:hover{border-color:var(--accent)}',
     '.ac-more[disabled]{opacity:0.6;cursor:default}',
-    '@media (max-width:760px){' +
-      '.ac-grid{grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px}' +
-      '.ac-head h1{font-size:21px}' +
-      '.ac-bar{gap:6px}' +
-      '.ac-sel{flex:1 1 46%}' +
-      '.ac-studio{flex:1 1 100%}' +
-      '.ac-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}' +
-      '.ac-chips::-webkit-scrollbar{display:none}' +
-      '.ac-chip{flex:0 0 auto}' +
-      '.ac-reset{margin-left:0}' +
+
+    '@media (max-width:1000px){',
+      '.ac-layout{grid-template-columns:1fr}',
+      '.ac-side{position:static;max-height:none;display:none}',
+      '.ac-side.open{display:grid}',
+      '.ac-filters-btn{display:inline-block}',
+      '.ac-search{width:200px}',
+    '}',
+    '@media (max-width:620px){',
+      '.ac-top h1{font-size:22px}',
+      '.ac-top-right{width:100%;margin-left:0}',
+      '.ac-search{flex:1 1 auto;width:auto}',
+      '.ac-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:16px 10px}',
     '}'
   ].join('');
 
@@ -166,6 +198,29 @@
     { id: 'asc', label: 'Сначала старое' }
   ];
 
+  var KIND_NAMES = {
+    tv: 'ТВ', movie: 'Фильм', ova: 'OVA', ona: 'ONA',
+    special: 'Спешл', tv_special: 'ТВ-спешл', music: 'Клип'
+  };
+
+  var STATUS_NAMES = { ongoing: 'Онгоинг', released: 'Вышло', anons: 'Анонс' };
+
+  /* описание полей: из него собирается боковая панель и чипсы активных фильтров */
+  var FIELDS = [
+    { key: 'genre', id: 'acGenre', label: 'Жанр', kind: 'genre' },
+    { key: 'year', id: 'acYear', label: 'Год', kind: 'year' },
+    { key: 'kind', id: 'acKind', label: 'Вид', list: KINDS },
+    { key: 'status', id: 'acStatus', label: 'Статус', list: STATUS },
+    { key: 'voice', id: 'acVoice', label: 'Перевод', list: VOICES },
+    { key: 'rating', id: 'acRating', label: 'Оценка', list: RATINGS },
+    { key: 'mpaa', id: 'acMpaa', label: 'Рейтинг MPAA', list: MPAA },
+    { key: 'age', id: 'acAge', label: 'Возраст', list: AGES },
+    { key: 'duration', id: 'acDuration', label: 'Длительность', list: DURATIONS },
+    { key: 'country', id: 'acCountry', label: 'Страна', list: COUNTRIES },
+    { key: 'sort', id: 'acSort', label: 'Сортировка', list: SORTS },
+    { key: 'order', id: 'acOrder', label: 'Порядок', list: ORDERS }
+  ];
+
   var DEFAULTS = {
     title: '', type: '', genre: '', year: '', status: '', kind: '', voice: '',
     mpaa: '', age: '', rating: '', duration: '', country: '', studio: '',
@@ -183,7 +238,8 @@
     failed: false,
     genres: null,
     genreKey: '',
-    mounted: false
+    mounted: false,
+    sideOpen: false
   };
 
   /* ---------------- фильтры: память ---------------- */
@@ -229,6 +285,15 @@
     style.id = 'catalog-css';
     style.textContent = CSS;
     (document.head || document.documentElement).appendChild(style);
+  }
+
+  /* в навигации вместо «Kodik» — «Каталог (Кодик)» */
+  function renameNav() {
+    var links = document.querySelectorAll('[data-tab="kodik"]');
+    Array.prototype.slice.call(links).forEach(function (link) {
+      if (link.textContent.trim() !== PAGE_TITLE) link.textContent = PAGE_TITLE;
+      link.title = 'Каталог из источника Kodik';
+    });
   }
 
   /* ---------------- жанры ---------------- */
@@ -493,19 +558,30 @@
     var name = material.anime_title || material.title || item.title || 'Без названия';
     var year = item.year || material.year || '';
     var poster = material.anime_poster_url || material.poster_url || '';
-    var kind = item.type === 'anime' ? 'Фильм' : 'Сериал';
+    var kindRaw = material.anime_kind || material.kind || (item.type === 'anime' ? 'movie' : 'tv');
+    var kind = KIND_NAMES[kindRaw] || (item.type === 'anime' ? 'Фильм' : 'Сериал');
+    var statusRaw = material.anime_status || material.all_status || '';
+    var status = STATUS_NAMES[statusRaw] || '';
     var episodes = item.last_episode || material.episodes_aired || material.episodes_total || 0;
-    var rating = material.shikimori_rating || material.kinopoisk_rating || 0;
-    var image = poster ? '<img src="' + escapeHtml(poster) + '" alt="" loading="lazy" decoding="async">' : '';
+    var total = material.episodes_total || 0;
+    var rating = Number(material.shikimori_rating || material.kinopoisk_rating || material.imdb_rating || 0);
+    var genres = (material.anime_genres || material.genres || []).slice(0, 3).join(', ');
+    var image = poster
+      ? '<img src="' + escapeHtml(poster) + '" alt="" loading="lazy" decoding="async">'
+      : '';
+    var episodeLine = episodes
+      ? escapeHtml(episodes) + (total && total > episodes ? ' из ' + escapeHtml(total) : '') + ' эп.'
+      : '';
 
     return '<a class="ac-card" href="#/kodik/' + encodeURIComponent(item.id) + '">' +
       '<div class="ac-poster">' + image +
-      '<span class="ac-badge">' + escapeHtml(kind) + '</span>' +
-      (episodes ? '<span class="ac-ep">' + escapeHtml(episodes) + ' эп.</span>' : '') +
+      '<span class="ac-kind">' + escapeHtml(kind) + '</span>' +
+      (rating ? '<span class="ac-rate">★ ' + escapeHtml(rating.toFixed(1)) + '</span>' : '') +
+      (episodeLine ? '<span class="ac-ep">' + episodeLine + '</span>' : '') +
+      (status ? '<span class="ac-status">' + escapeHtml(status) + '</span>' : '') +
       '</div>' +
       '<p class="ac-name">' + escapeHtml(name) + '</p>' +
-      '<p class="ac-meta">' + escapeHtml(year || '—') +
-      (rating ? ' · ' + escapeHtml(Number(rating).toFixed(1)) : '') + '</p>' +
+      '<p class="ac-meta">' + escapeHtml([year || '—', genres].filter(Boolean).join(' · ')) + '</p>' +
       '</a>';
   }
 
@@ -516,9 +592,10 @@
   }
 
   /* год: конкретные значения плюс диапазоны — API принимает и «2021», и «2010-2019» */
-  function yearOptions(selected) {
+  function yearList() {
     var now = new Date().getFullYear();
-    var ranges = [
+    var list = [
+      { id: '', label: 'Любой год' },
       { id: String(now - 4) + '-' + String(now), label: 'Последние 5 лет' },
       { id: '2020-' + String(now), label: '2020-е' },
       { id: '2010-2019', label: '2010-е' },
@@ -526,26 +603,69 @@
       { id: '1990-1999', label: '1990-е' },
       { id: '1980-1989', label: '1980-е' }
     ];
-    var out = '<option value="">Любой год</option>';
-    out += ranges.map(function (row) {
-      return '<option value="' + escapeHtml(row.id) + '"' +
-        (String(selected) === row.id ? ' selected' : '') + '>' + escapeHtml(row.label) + '</option>';
-    }).join('');
     for (var year = now; year >= 1980; year -= 1) {
-      out += '<option value="' + year + '"' + (String(selected) === String(year) ? ' selected' : '') + '>' + year + '</option>';
+      list.push({ id: String(year), label: String(year) });
     }
-    return out;
+    return list;
+  }
+
+  function listFor(field) {
+    if (field.kind === 'year') return yearList();
+    if (field.kind === 'genre') {
+      return [{ id: '', label: 'Любой жанр' }].concat((state.genres || []).map(function (genre) {
+        return { id: genre, label: genre };
+      }));
+    }
+    return field.list || [];
+  }
+
+  function labelFor(field, value) {
+    var found = '';
+    listFor(field).forEach(function (row) {
+      if (String(row.id) === String(value)) found = row.label;
+    });
+    return found || String(value);
   }
 
   function options(list, selected) {
     return list.map(function (row) {
-      return '<option value="' + escapeHtml(row.id) + '"' + (row.id === selected ? ' selected' : '') + '>' +
-        escapeHtml(row.label) + '</option>';
+      return '<option value="' + escapeHtml(row.id) + '"' +
+        (String(row.id) === String(selected) ? ' selected' : '') + '>' + escapeHtml(row.label) + '</option>';
     }).join('');
   }
 
-  function selectHtml(id, list, selected) {
-    return '<select class="ac-sel" id="' + id + '">' + options(list, selected) + '</select>';
+  function groupHtml(field) {
+    var value = state.filters[field.key];
+    return '<div class="ac-group">' +
+      '<span class="ac-label">' + escapeHtml(field.label) + '</span>' +
+      '<select class="ac-sel" id="' + field.id + '">' + options(listFor(field), value) + '</select>' +
+      '</div>';
+  }
+
+  /* чипсы активных фильтров над сеткой, каждый снимается крестиком */
+  function activeHtml() {
+    var f = state.filters;
+    var pills = [];
+
+    function pill(key, text) {
+      pills.push('<span class="ac-pill">' + escapeHtml(text) +
+        '<button type="button" data-clear="' + key + '" aria-label="Снять фильтр">×</button></span>');
+    }
+
+    if (f.title) pill('title', 'Поиск: ' + f.title);
+    if (f.type) {
+      TYPES.forEach(function (row) { if (row.id === f.type) pill('type', row.label); });
+    }
+    FIELDS.forEach(function (field) {
+      var value = f[field.key];
+      if (!value || value === DEFAULTS[field.key]) return;
+      pill(field.key, labelFor(field, value));
+    });
+    if (f.studio) pill('studio', 'Студия: ' + f.studio);
+    if (f.noLgbt) pill('noLgbt', 'Без LGBT-метки');
+    if (!f.noCamrip) pill('noCamrip', 'С экранками');
+
+    return pills.join('');
   }
 
   function render() {
@@ -554,12 +674,18 @@
     var more = byId('acMore');
     var stateLine = byId('acState');
     var count = byId('acCount');
+    var active = byId('acActive');
 
     grid.innerHTML = state.items.map(cardHtml).join('') +
       (state.loading ? skeletons(state.items.length ? 6 : 18) : '');
 
     if (collectGenres()) fillGenreSelect();
 
+    if (active) {
+      var pills = activeHtml();
+      active.innerHTML = pills;
+      active.hidden = !pills;
+    }
     if (count) {
       count.textContent = state.items.length
         ? state.items.length + ' из ' + (state.total ? state.total.toLocaleString('ru-RU') : '—')
@@ -585,53 +711,49 @@
     var f = state.filters;
 
     root.innerHTML =
-      '<div class="ac-head"><h1>Каталог Kodik</h1><span class="ac-count" id="acCount"></span></div>' +
-      '<div class="ac-chips" id="acChips">' +
-      TYPES.map(function (row) {
-        return '<button type="button" class="ac-chip" data-type="' + escapeHtml(row.id) + '" aria-pressed="' +
-          (row.id === f.type ? 'true' : 'false') + '">' + escapeHtml(row.label) + '</button>';
-      }).join('') +
-      '</div>' +
-      '<div class="ac-bar">' +
+      '<div class="ac-top">' +
+      '<h1>' + escapeHtml(PAGE_TITLE) + '</h1>' +
+      '<span class="ac-count" id="acCount"></span>' +
+      '<div class="ac-top-right">' +
       '<input class="ac-search" id="acSearch" type="search" placeholder="Поиск по названию" autocomplete="off" value="' +
       escapeHtml(f.title) + '">' +
-      '<select class="ac-sel" id="acGenre"><option value="">Любой жанр</option></select>' +
-      '<select class="ac-sel" id="acYear">' + yearOptions(f.year) + '</select>' +
-      selectHtml('acKind', KINDS, f.kind) +
-      selectHtml('acStatus', STATUS, f.status) +
-      '</div>' +
-      '<div class="ac-bar">' +
-      selectHtml('acVoice', VOICES, f.voice) +
-      selectHtml('acMpaa', MPAA, f.mpaa) +
-      selectHtml('acAge', AGES, f.age) +
-      selectHtml('acRating', RATINGS, f.rating) +
-      selectHtml('acDuration', DURATIONS, f.duration) +
-      selectHtml('acCountry', COUNTRIES, f.country) +
-      '<input class="ac-studio" id="acStudio" type="text" placeholder="Студия, напр. Bones" autocomplete="off" value="' +
-      escapeHtml(f.studio) + '">' +
-      '</div>' +
-      '<div class="ac-bar">' +
-      selectHtml('acSort', SORTS, f.sort) +
-      selectHtml('acOrder', ORDERS, f.order) +
-      '</div>' +
-      '<div class="ac-toggles">' +
+      '<button type="button" class="ac-filters-btn" id="acFiltersBtn" aria-expanded="false">Фильтры</button>' +
+      '</div></div>' +
+
+      '<div class="ac-layout">' +
+      '<aside class="ac-side' + (state.sideOpen ? ' open' : '') + '" id="acSide">' +
+      '<div class="ac-group"><span class="ac-label">Тип</span><div class="ac-types" id="acTypes">' +
+      TYPES.map(function (row) {
+        return '<button type="button" class="ac-type" data-type="' + escapeHtml(row.id) + '" aria-pressed="' +
+          (row.id === f.type ? 'true' : 'false') + '">' + escapeHtml(row.label) + '</button>';
+      }).join('') + '</div></div>' +
+      FIELDS.map(groupHtml).join('') +
+      '<div class="ac-group"><span class="ac-label">Студия</span>' +
+      '<input class="ac-text" id="acStudio" type="text" placeholder="например Bones" autocomplete="off" value="' +
+      escapeHtml(f.studio) + '"></div>' +
+      '<div class="ac-checks">' +
       '<label><input type="checkbox" id="acNoCamrip"' + (f.noCamrip ? ' checked' : '') + '> Без экранок</label>' +
       '<label><input type="checkbox" id="acNoLgbt"' + (f.noLgbt ? ' checked' : '') + '> Без LGBT-метки</label>' +
-      '<button type="button" class="ac-reset" id="acReset">Сбросить фильтры</button>' +
       '</div>' +
+      '<button type="button" class="ac-reset" id="acReset">Сбросить фильтры</button>' +
+      '</aside>' +
+
+      '<div class="ac-main">' +
+      '<div class="ac-active" id="acActive" hidden></div>' +
       '<div class="ac-grid" id="acGrid"></div>' +
       '<p class="ac-state" id="acState" hidden></p>' +
       '<button type="button" class="ac-more" id="acMore" hidden>Показать ещё</button>' +
-      '<div id="acSentinel" aria-hidden="true"></div>';
+      '<div id="acSentinel" aria-hidden="true"></div>' +
+      '</div></div>';
 
     collectGenres();
     fillGenreSelect();
 
-    byId('acChips').addEventListener('click', function (event) {
-      var chip = event.target && event.target.closest ? event.target.closest('.ac-chip') : null;
+    byId('acTypes').addEventListener('click', function (event) {
+      var chip = event.target && event.target.closest ? event.target.closest('.ac-type') : null;
       if (!chip) return;
       f.type = chip.getAttribute('data-type') || '';
-      Array.prototype.slice.call(root.querySelectorAll('.ac-chip')).forEach(function (node) {
+      Array.prototype.slice.call(root.querySelectorAll('.ac-type')).forEach(function (node) {
         node.setAttribute('aria-pressed', node === chip ? 'true' : 'false');
       });
       reload();
@@ -657,15 +779,11 @@
       }, 500);
     });
 
-    [
-      ['acGenre', 'genre'], ['acYear', 'year'], ['acKind', 'kind'], ['acStatus', 'status'],
-      ['acVoice', 'voice'], ['acMpaa', 'mpaa'], ['acAge', 'age'], ['acRating', 'rating'],
-      ['acDuration', 'duration'], ['acCountry', 'country'], ['acSort', 'sort'], ['acOrder', 'order']
-    ].forEach(function (pair) {
-      var node = byId(pair[0]);
+    FIELDS.forEach(function (field) {
+      var node = byId(field.id);
       if (!node) return;
       node.addEventListener('change', function () {
-        f[pair[1]] = node.value;
+        f[field.key] = node.value;
         reload();
       });
     });
@@ -679,9 +797,27 @@
       });
     });
 
+    var toggle = byId('acFiltersBtn');
+    toggle.addEventListener('click', function () {
+      state.sideOpen = !state.sideOpen;
+      var side = byId('acSide');
+      if (side) side.classList.toggle('open', state.sideOpen);
+      toggle.setAttribute('aria-expanded', state.sideOpen ? 'true' : 'false');
+    });
+
+    /* крестик на чипсе снимает один фильтр и пересобирает панель */
+    byId('acActive').addEventListener('click', function (event) {
+      var button = event.target && event.target.closest ? event.target.closest('[data-clear]') : null;
+      if (!button) return;
+      var key = button.getAttribute('data-clear');
+      if (!(key in DEFAULTS)) return;
+      f[key] = DEFAULTS[key];
+      mount(root);
+      reload();
+    });
+
     byId('acReset').addEventListener('click', function () {
       state.filters = freshFilters();
-      state.mounted = false;
       saveFilters();
       mount(root);
       reload();
@@ -711,6 +847,7 @@
 
   function pass() {
     injectCss();
+    renameNav();
     var hash = location.hash || '';
     if (!/^#\/kodik\/?$/.test(hash)) {
       state.mounted = false;
@@ -738,6 +875,7 @@
       observer.observe(document.body, { childList: true, subtree: true });
     }
     setTimeout(pass, 800);
+    setTimeout(renameNav, 1500);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
