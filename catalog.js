@@ -1,429 +1,164 @@
-/* AnimRu: каталог (Кодик) — верстка в стиле каталога Анилибрии: боковая панель фильтров,
-   сетка постеров с оценкой, чипсы активных фильтров, бесконечная подгрузка.
-   Запросы идут только через AnimKodikNet: он сам подбирает токен и передатчик. */
+/* AnimRu — классический отдельный каталог Kodik.
+   Основа возвращена к первому каталогу (commit 015d814), интерфейс приведён к
+   каталогу AniLibria, а параметры сверены с KODIK_API.md AnimeParsers. */
 (function () {
   'use strict';
 
-  var API = 'https://kodik-api.com';
   var LIMIT = 50;
-  var WANT = 24;
-  var HOPS = 4;
-  var LS = 'animru:catalog';
-  var PAGE_TITLE = 'Каталог (Кодик)';
+  var WANT = 30;
+  var HOPS = 5;
+  var STORAGE = 'animru:kodik-catalog-classic';
 
-  /* Аниме-жанры из документации Kodik: идут в anime_genres и чувствительны к регистру.
-     Обычные жанры («драма», «боевик» и т.д., с маленькой буквы) идут в genres. */
-  var ANIME_GENRES = [
-    'Боевые искусства', 'Вампиры', 'Военное', 'Гарем', 'Демоны', 'Детектив',
-    'Детское', 'Драма', 'Игры', 'Исторический', 'Комедия', 'Магия', 'Меха',
-    'Мистика', 'Музыка', 'Пародия', 'Повседневность', 'Приключения',
-    'Психологическое', 'Романтика', 'Самураи', 'Сверхъестественное', 'Сейнен',
-    'Сёдзё', 'Сёнен', 'Спорт', 'Триллер', 'Ужасы', 'Фантастика', 'Фэнтези',
-    'Школа', 'Экшен', 'Этти'
-  ];
-
-  var CSS = [
-    /* шапка страницы */
-    '.ac-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 18px}',
-    '.ac-top h1{margin:0;font-size:28px;line-height:1.15;letter-spacing:-0.02em}',
-    '.ac-count{font-size:13px;color:var(--dim,var(--muted))}',
-    '.ac-top-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
-    '.ac-search{width:260px;max-width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:999px;' +
-      'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px}',
-    '.ac-search:focus{outline:none;border-color:var(--accent)}',
-    '.ac-filters-btn{display:none;padding:10px 16px;border:1px solid var(--line);border-radius:999px;' +
-      'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px;cursor:pointer}',
-
-    /* двухколоночная раскладка как в Анилибрии */
-    '.ac-layout{display:grid;grid-template-columns:268px minmax(0,1fr);gap:26px;align-items:start}',
-    '.ac-side{position:sticky;top:calc(var(--header-h,64px) + 16px);display:grid;gap:16px;padding:18px;' +
-      'border:1px solid var(--line);border-radius:16px;background:var(--surface);max-height:calc(100vh - var(--header-h,64px) - 40px);' +
-      'overflow:auto;scrollbar-width:thin}',
-    '.ac-group{display:grid;gap:7px}',
-    '.ac-label{font-size:11.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--dim,var(--muted))}',
-    '.ac-sel,.ac-text{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;' +
-      'background:var(--surface-2);color:var(--text);font:inherit;font-size:13.5px}',
-    '.ac-sel:focus,.ac-text:focus{outline:none;border-color:var(--accent)}',
-    '.ac-types{display:flex;gap:6px;flex-wrap:wrap}',
-    '.ac-type{flex:1 1 auto;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);' +
-      'color:var(--muted);font:inherit;font-size:13px;cursor:pointer;transition:all var(--t-fast,120ms) ease}',
-    '.ac-type:hover{color:var(--text);border-color:var(--accent)}',
-    '.ac-type[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#0a0a0b;font-weight:600}',
-    '.ac-checks{display:grid;gap:9px;font-size:13px;color:var(--muted)}',
-    '.ac-checks label{display:flex;align-items:center;gap:8px;cursor:pointer}',
-    '.ac-checks input{accent-color:var(--accent)}',
-    '.ac-reset{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;' +
-      'color:var(--muted);font:inherit;font-size:13px;cursor:pointer}',
-    '.ac-reset:hover{color:var(--text);border-color:var(--accent)}',
-
-    /* активные фильтры */
-    '.ac-active{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}',
-    '.ac-pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line);' +
-      'border-radius:999px;background:var(--surface-2);color:var(--text);font-size:12.5px}',
-    '.ac-pill button{border:0;background:transparent;color:var(--dim,var(--muted));font:inherit;font-size:14px;' +
-      'line-height:1;cursor:pointer;padding:0}',
-    '.ac-pill button:hover{color:var(--accent)}',
-
-    /* сетка постеров */
-    '.ac-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:20px 16px}',
-    '.ac-card{display:block;color:inherit;text-decoration:none}',
-    '.ac-poster{position:relative;aspect-ratio:350/500;border-radius:14px;overflow:hidden;background:var(--surface-2);' +
-      'box-shadow:0 6px 20px rgba(0,0,0,0.28);transition:transform var(--t,200ms) ease,box-shadow var(--t,200ms) ease}',
-    '.ac-card:hover .ac-poster{transform:translateY(-4px);box-shadow:0 14px 30px rgba(0,0,0,0.4)}',
-    '.ac-poster img{width:100%;height:100%;object-fit:cover;display:block}',
-    '.ac-poster::after{content:"";position:absolute;inset:auto 0 0;height:46%;pointer-events:none;' +
-      'background:linear-gradient(to top,rgba(8,8,10,0.85),rgba(8,8,10,0))}',
-    '.ac-rate{position:absolute;right:8px;top:8px;z-index:2;display:inline-flex;align-items:center;gap:3px;' +
-      'padding:3px 8px;border-radius:999px;background:rgba(10,10,11,0.78);backdrop-filter:blur(4px);' +
-      'color:#ffd166;font-size:11.5px;font-weight:700}',
-    '.ac-kind{position:absolute;left:8px;top:8px;z-index:2;padding:3px 8px;border-radius:999px;' +
-      'background:rgba(10,10,11,0.72);backdrop-filter:blur(4px);color:#fff;font-size:11px;font-weight:600}',
-    '.ac-ep{position:absolute;left:10px;bottom:9px;z-index:2;color:#fff;font-size:12px;font-weight:600;' +
-      'text-shadow:0 1px 6px rgba(0,0,0,0.6)}',
-    '.ac-status{position:absolute;right:10px;bottom:9px;z-index:2;color:#dcdce3;font-size:11.5px;' +
-      'text-shadow:0 1px 6px rgba(0,0,0,0.6)}',
-    '.ac-name{margin:9px 2px 0;font-size:13.5px;font-weight:600;line-height:1.3;display:-webkit-box;' +
-      '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
-    '.ac-card:hover .ac-name{color:var(--accent)}',
-    '.ac-meta{margin:4px 2px 0;font-size:12px;color:var(--dim,var(--muted));display:-webkit-box;' +
-      '-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}',
-    '.ac-skel{aspect-ratio:350/500;border-radius:14px;background:var(--surface-2);' +
-      'animation:animru-skeleton 1.1s ease-in-out infinite}',
-    '.ac-state{margin:22px 2px;font-size:14px;color:var(--muted)}',
-    '.ac-more{display:block;width:100%;margin:22px 0 4px;padding:12px 16px;border:1px solid var(--line);' +
-      'border-radius:12px;background:var(--surface-2);color:var(--text);font:inherit;font-size:14px;cursor:pointer}',
-    '.ac-more:hover{border-color:var(--accent)}',
-    '.ac-more[disabled]{opacity:0.6;cursor:default}',
-
-    '@media (max-width:1000px){',
-      '.ac-layout{grid-template-columns:1fr}',
-      '.ac-side{position:static;max-height:none;display:none}',
-      '.ac-side.open{display:grid}',
-      '.ac-filters-btn{display:inline-block}',
-      '.ac-search{width:200px}',
-    '}',
-    '@media (max-width:620px){',
-      '.ac-top h1{font-size:22px}',
-      '.ac-top-right{width:100%;margin-left:0}',
-      '.ac-search{flex:1 1 auto;width:auto}',
-      '.ac-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:16px 10px}',
-    '}'
-  ].join('');
-
-  var TYPES = [
-    { id: '', label: 'Всё' },
-    { id: 'anime-serial', label: 'Сериалы' },
-    { id: 'anime', label: 'Фильмы' }
-  ];
-
-  var STATUS = [
-    { id: '', label: 'Любой статус' },
-    { id: 'ongoing', label: 'Онгоинг' },
-    { id: 'released', label: 'Вышло' },
-    { id: 'anons', label: 'Анонс' }
-  ];
-
-  /* anime_kind из документации */
-  var KINDS = [
-    { id: '', label: 'Любой вид' },
-    { id: 'tv', label: 'ТВ-сериал' },
-    { id: 'movie', label: 'Фильм' },
-    { id: 'ova', label: 'OVA' },
-    { id: 'ona', label: 'ONA' },
-    { id: 'special', label: 'Спешл' },
-    { id: 'tv_special', label: 'ТВ-спешл' },
-    { id: 'music', label: 'Клип' }
-  ];
-
-  var VOICES = [
-    { id: '', label: 'Любой перевод' },
-    { id: 'voice', label: 'Озвучка' },
-    { id: 'subtitles', label: 'Субтитры' }
-  ];
-
-  var MPAA = [
-    { id: '', label: 'Любой рейтинг' },
-    { id: 'g', label: 'G' },
-    { id: 'pg', label: 'PG' },
-    { id: 'pg-13', label: 'PG-13' },
-    { id: 'r', label: 'R' },
-    { id: 'r+', label: 'R+' },
-    { id: 'rx', label: 'Rx' }
-  ];
-
-  var AGES = [
-    { id: '', label: 'Любой возраст' },
-    { id: '0-6', label: 'До 6+' },
-    { id: '0-12', label: 'До 12+' },
-    { id: '0-16', label: 'До 16+' },
-    { id: '16-21', label: '16+ и выше' },
-    { id: '18-21', label: 'Только 18+' }
-  ];
-
-  var RATINGS = [
-    { id: '', label: 'Любая оценка' },
-    { id: '9-10', label: 'Шикимори 9+' },
-    { id: '8-10', label: 'Шикимори 8+' },
-    { id: '7-10', label: 'Шикимори 7+' },
-    { id: '6-10', label: 'Шикимори 6+' }
-  ];
-
-  var DURATIONS = [
-    { id: '', label: 'Любая длина' },
-    { id: '0-10', label: 'До 10 мин' },
-    { id: '11-30', label: '11–30 мин' },
-    { id: '31-60', label: '31–60 мин' },
-    { id: '61-400', label: 'Больше часа' }
-  ];
-
-  var COUNTRIES = [
-    { id: '', label: 'Любая страна' },
-    { id: 'Япония', label: 'Япония' },
-    { id: 'Китай', label: 'Китай' },
-    { id: 'Корея Южная', label: 'Южная Корея' },
-    { id: 'США', label: 'США' }
-  ];
-
-  var SORTS = [
-    { id: 'updated_at', label: 'По обновлению' },
-    { id: 'created_at', label: 'По добавлению' },
-    { id: 'year', label: 'По году' },
-    { id: 'shikimori_rating', label: 'По оценке Шикимори' },
-    { id: 'kinopoisk_rating', label: 'По оценке Кинопоиска' },
-    { id: 'imdb_rating', label: 'По оценке IMDb' }
-  ];
-
-  var ORDERS = [
-    { id: 'desc', label: 'Сначала новое' },
-    { id: 'asc', label: 'Сначала старое' }
-  ];
-
-  var KIND_NAMES = {
-    tv: 'ТВ', movie: 'Фильм', ova: 'OVA', ona: 'ONA',
-    special: 'Спешл', tv_special: 'ТВ-спешл', music: 'Клип'
-  };
-
-  var STATUS_NAMES = { ongoing: 'Онгоинг', released: 'Вышло', anons: 'Анонс' };
-
-  /* описание полей: из него собирается боковая панель и чипсы активных фильтров */
-  var FIELDS = [
-    { key: 'genre', id: 'acGenre', label: 'Жанр', kind: 'genre' },
-    { key: 'year', id: 'acYear', label: 'Год', kind: 'year' },
-    { key: 'kind', id: 'acKind', label: 'Вид', list: KINDS },
-    { key: 'status', id: 'acStatus', label: 'Статус', list: STATUS },
-    { key: 'voice', id: 'acVoice', label: 'Перевод', list: VOICES },
-    { key: 'rating', id: 'acRating', label: 'Оценка', list: RATINGS },
-    { key: 'mpaa', id: 'acMpaa', label: 'Рейтинг MPAA', list: MPAA },
-    { key: 'age', id: 'acAge', label: 'Возраст', list: AGES },
-    { key: 'duration', id: 'acDuration', label: 'Длительность', list: DURATIONS },
-    { key: 'country', id: 'acCountry', label: 'Страна', list: COUNTRIES },
-    { key: 'sort', id: 'acSort', label: 'Сортировка', list: SORTS },
-    { key: 'order', id: 'acOrder', label: 'Порядок', list: ORDERS }
+  var GENRES = [
+    'Боевые искусства', 'Военное', 'Драма', 'Исторический', 'Комедия', 'Музыка',
+    'Повседневность', 'Приключения', 'Психологическое', 'Романтика', 'Самураи',
+    'Сверхъестественное', 'Сёнен', 'Спорт', 'Триллер', 'Фантастика', 'Фэнтези',
+    'Школа', 'Экшен'
   ];
 
   var DEFAULTS = {
-    title: '', type: '', genre: '', year: '', status: '', kind: '', voice: '',
-    mpaa: '', age: '', rating: '', duration: '', country: '', studio: '',
-    sort: 'updated_at', order: 'desc', noCamrip: true, noLgbt: false
+    title: '', type: '', genre: '', year: '', kind: '', status: '', voice: '',
+    rating: '', mpaa: '', sort: 'updated_at', order: 'desc'
   };
 
   var state = {
-    filters: null,
+    filters: loadFilters(),
     items: [],
     seen: {},
-    next: null,
+    next: '',
     total: 0,
     loading: false,
-    done: false,
     failed: false,
-    genres: null,
-    genreKey: '',
+    done: false,
     mounted: false,
-    sideOpen: false
+    sideOpen: false,
+    genreKey: ''
   };
 
-  /* ---------------- фильтры: память ---------------- */
+  var CSS = [
+    '.kc-page{padding-top:calc(var(--header-h,64px) + 24px)}',
+    '.kc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 18px}',
+    '.kc-head h1{margin:0;font-size:28px;line-height:1.15;letter-spacing:-.02em}',
+    '.kc-count{font-size:13px;color:var(--dim,var(--muted))}',
+    '.kc-search{margin-left:auto;width:min(320px,100%);padding:10px 14px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);color:var(--text);font:inherit}',
+    '.kc-search:focus,.kc-select:focus{outline:none;border-color:var(--accent)}',
+    '.kc-filter-toggle{display:none;margin-left:auto;padding:10px 15px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);color:var(--text);font:inherit}',
+    '.kc-layout{display:grid;grid-template-columns:268px minmax(0,1fr);gap:26px;align-items:start}',
+    '.kc-side{position:sticky;top:calc(var(--header-h,64px) + 16px);display:grid;gap:15px;padding:18px;border:1px solid var(--line);border-radius:16px;background:var(--surface);max-height:calc(100vh - var(--header-h,64px) - 38px);overflow:auto;scrollbar-width:thin}',
+    '.kc-group{display:grid;gap:7px}',
+    '.kc-label{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim,var(--muted))}',
+    '.kc-select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--text);font:inherit;font-size:13.5px}',
+    '.kc-types{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}',
+    '.kc-type{min-height:36px;padding:7px 5px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}',
+    '.kc-type[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#0a0a0b;font-weight:700}',
+    '.kc-reset{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--muted);font:inherit;cursor:pointer}',
+    '.kc-active{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px}',
+    '.kc-pill{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);font-size:12.5px}',
+    '.kc-pill button{padding:0;border:0;background:none;color:var(--dim);font:inherit;cursor:pointer}',
+    '.kc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(164px,1fr));gap:20px 16px}',
+    '.kc-card{display:block;color:inherit;text-decoration:none}',
+    '.kc-poster{position:relative;aspect-ratio:2/3;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface-2);box-shadow:0 6px 20px rgba(0,0,0,.24);transition:transform 180ms ease,border-color 180ms ease}',
+    '.kc-card:hover .kc-poster{transform:translateY(-3px);border-color:var(--accent)}',
+    '.kc-poster img{display:block;width:100%;height:100%;object-fit:cover}',
+    '.kc-kind,.kc-rate,.kc-ep{position:absolute;z-index:2;padding:3px 7px;border-radius:8px;background:rgba(8,8,10,.78);color:#fff;font-size:11px;font-weight:700;backdrop-filter:blur(4px)}',
+    '.kc-kind{left:8px;top:8px}.kc-rate{right:8px;top:8px;color:#ffd166}.kc-ep{left:8px;bottom:8px}',
+    '.kc-name{margin:9px 2px 0;font-size:13.5px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+    '.kc-meta{margin:4px 2px 0;font-size:12px;color:var(--dim,var(--muted));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.kc-card:hover .kc-name{color:var(--accent)}',
+    '.kc-skel{aspect-ratio:2/3;border-radius:14px;background:var(--surface-2);animation:animru-skeleton 1.1s ease-in-out infinite}',
+    '.kc-state{margin:22px 2px;color:var(--muted)}',
+    '.kc-more{display:block;width:100%;margin:22px 0 4px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--text);font:inherit;cursor:pointer}',
+    '@media(max-width:1000px){.kc-layout{grid-template-columns:1fr}.kc-side{display:none;position:static;max-height:none}.kc-side.open{display:grid}.kc-filter-toggle{display:inline-block}.kc-search{order:3;margin-left:0;flex:1 1 100%}}',
+    '@media(max-width:620px){.kc-page{padding-top:calc(var(--header-h,64px) + 14px)}.kc-head h1{font-size:22px}.kc-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:16px 10px}}',
+    '@media(prefers-reduced-motion:reduce){.kc-poster{transition:none}}'
+  ].join('');
 
-  function freshFilters() {
+  function byId(id) { return document.getElementById(id); }
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
+    });
+  }
+  function cloneDefaults() {
     var out = {};
     Object.keys(DEFAULTS).forEach(function (key) { out[key] = DEFAULTS[key]; });
     return out;
   }
-
   function loadFilters() {
-    var saved = null;
-    try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) { saved = null; }
-    var out = freshFilters();
-    if (saved && typeof saved === 'object') {
-      Object.keys(DEFAULTS).forEach(function (key) {
-        if (saved[key] === undefined || saved[key] === null) return;
-        out[key] = typeof DEFAULTS[key] === 'boolean' ? !!saved[key] : String(saved[key]);
+    var out = cloneDefaults();
+    try {
+      var saved = JSON.parse(localStorage.getItem(STORAGE) || 'null');
+      if (saved && typeof saved === 'object') Object.keys(out).forEach(function (key) {
+        if (saved[key] != null) out[key] = String(saved[key]);
       });
-    }
-    /* поиск по названию не запоминаем: он живёт одну сессию */
+    } catch (e) {}
     out.title = '';
     return out;
   }
-
   function saveFilters() {
-    try { localStorage.setItem(LS, JSON.stringify(state.filters)); } catch (e) {}
+    try { localStorage.setItem(STORAGE, JSON.stringify(state.filters)); } catch (e) {}
   }
-
-  state.filters = loadFilters();
-
-  function byId(id) { return document.getElementById(id); }
-
-  function escapeHtml(text) {
-    return String(text == null ? '' : text).replace(/[&<>"']/g, function (ch) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
-    });
-  }
-
   function injectCss() {
-    if (byId('catalog-css')) return;
+    if (byId('kodik-classic-css')) return;
     var style = document.createElement('style');
-    style.id = 'catalog-css';
+    style.id = 'kodik-classic-css';
     style.textContent = CSS;
     (document.head || document.documentElement).appendChild(style);
   }
-
-  /* в навигации вместо «Kodik» — «Каталог (Кодик)» */
-  function renameNav() {
-    var links = document.querySelectorAll('[data-tab="kodik"]');
-    Array.prototype.slice.call(links).forEach(function (link) {
-      if (link.textContent.trim() !== PAGE_TITLE) link.textContent = PAGE_TITLE;
-      link.title = 'Каталог из источника Kodik';
+  function ensureView() {
+    var view = byId('view-kodik');
+    if (!view) {
+      view = document.createElement('section');
+      view.id = 'view-kodik';
+      view.className = 'view wrap kc-page';
+      view.hidden = true;
+      view.innerHTML = '<div id="kbRoot"></div>';
+      (byId('app') || document.body).appendChild(view);
+    }
+    var root = byId('kbRoot');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'kbRoot';
+      view.appendChild(root);
+    }
+    return { view: view, root: root };
+  }
+  function showView(view) {
+    Array.prototype.slice.call(document.querySelectorAll('#app > .view')).forEach(function (node) {
+      node.hidden = node !== view;
     });
+    view.hidden = false;
   }
-
-  /* ---------------- жанры ---------------- */
-
-  /* аниме-жанр идёт в anime_genres, остальное — в genres */
-  function genreKeyFor(genre) {
-    var name = String(genre || '');
-    var hit = false;
-    ANIME_GENRES.forEach(function (known) {
-      if (known.toLowerCase() === name.toLowerCase()) hit = true;
-    });
-    return hit && name[0] === name[0].toUpperCase() ? 'anime_genres' : 'genres';
-  }
-
-  function genreValue(genre, key) {
-    var name = String(genre || '');
-    if (key === 'genres') return name.toLowerCase();
-    var exact = name;
-    ANIME_GENRES.forEach(function (known) {
-      if (known.toLowerCase() === name.toLowerCase()) exact = known;
-    });
-    return exact;
-  }
-
-  function otherKey(key) {
-    return key === 'anime_genres' ? 'genres' : 'anime_genres';
-  }
-
-  /* ---------------- сеть ---------------- */
-
-  /* ждём транспорт: kodik-net.js может ещё загружаться */
-  function net(tries) {
-    if (window.AnimKodikNet) return Promise.resolve(window.AnimKodikNet);
-    if ((tries || 0) > 40) return Promise.resolve(null);
-    return new Promise(function (done) { setTimeout(done, 150); }).then(function () {
-      return net((tries || 0) + 1);
-    });
-  }
-
   function clean(params) {
     var out = {};
     Object.keys(params).forEach(function (key) {
-      var value = params[key];
-      if (value === '' || value == null || value === false) return;
-      out[key] = value;
+      if (params[key] !== '' && params[key] != null) out[key] = params[key];
     });
     return out;
   }
-
+  function net(tries) {
+    if (window.AnimKodikNet && window.AnimKodikNet.request) return Promise.resolve(window.AnimKodikNet);
+    if ((tries || 0) > 50) return Promise.reject(new Error('Kodik transport unavailable'));
+    return new Promise(function (resolve) { setTimeout(resolve, 120); }).then(function () { return net((tries || 0) + 1); });
+  }
   function ask(path, params) {
-    return net().then(function (api) {
-      if (api && api.request) return api.request(path, clean(params));
-      /* транспорт не поднялся: пробуем напрямую, может сработать в приложении */
-      var ready = clean(params);
-      var query = Object.keys(ready).map(function (key) {
-        return encodeURIComponent(key) + '=' + encodeURIComponent(String(ready[key]));
-      }).join('&');
-      return fetch(API + path + '?' + query, { cache: 'no-store' }).then(function (res) { return res.json(); });
-    }).then(function (data) {
-      if (!data || data.error) throw new Error(data && data.error ? String(data.error) : 'kodik');
+    return net().then(function (api) { return api.request(path, clean(params)); });
+  }
+  function nextPage(url) {
+    return fetch(url, { cache: 'no-store' }).then(function (res) { return res.json(); }).then(function (data) {
+      if (!data || data.error) throw new Error('Kodik page unavailable');
       return data;
     });
   }
-
-  /* следующая страница приходит готовой ссылкой next_page */
-  function askUrl(url) {
-    return fetch(url, { cache: 'no-store' })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (!data || data.error) throw new Error(data && data.error ? String(data.error) : 'kodik');
-        return data;
-      });
-  }
-
-  /* общие фильтры: работают и в /list, и в /search */
-  function commonParams() {
-    var f = state.filters;
-    return {
-      limit: LIMIT,
-      types: f.type || 'anime,anime-serial',
-      year: f.year,
-      anime_kind: f.kind,
-      anime_status: f.status,
-      translation_type: f.voice,
-      rating_mpaa: f.mpaa,
-      minimal_age: f.age,
-      shikimori_rating: f.rating,
-      duration: f.duration,
-      countries: f.country,
-      anime_studios: f.studio,
-      /* камрипы и LGBT-метки отключаем строками: false отбрасывается как пустое значение */
-      camrip: f.noCamrip ? 'false' : '',
-      lgbt: f.noLgbt ? 'false' : '',
-      with_material_data: true
-    };
-  }
-
-  function withGenre(params, key) {
-    var f = state.filters;
-    if (f.genre && key) params[key] = genreValue(f.genre, key);
-    return params;
-  }
-
-  function listParams(key) {
-    var f = state.filters;
-    var params = commonParams();
-    params.sort = f.sort;
-    params.order = f.order || 'desc';
-    return withGenre(params, key);
-  }
-
-  /* /search не поддерживает sort и order */
-  function searchParams(key) {
-    var params = commonParams();
-    params.title = state.filters.title;
-    return withGenre(params, key);
-  }
-
-  /* Kodik даёт отдельную запись на каждую озвучку и серию — склеиваем в одну карточку */
+  function material(item) { return (item && item.material_data) || {}; }
+  function titleOf(item) { var data = material(item); return data.anime_title || data.title || item.title || 'Без названия'; }
   function keyOf(item) {
-    var material = item.material_data || {};
-    if (item.shikimori_id) return 'sh:' + item.shikimori_id;
-    if (item.kinopoisk_id) return 'kp:' + item.kinopoisk_id;
-    var name = (material.anime_title || item.title || '').toLowerCase().trim();
-    return 'nm:' + name + ':' + (item.year || material.year || '');
+    var data = material(item);
+    return item.shikimori_id ? 'sh:' + item.shikimori_id : item.kinopoisk_id ? 'kp:' + item.kinopoisk_id : 'nm:' + titleOf(item).toLowerCase() + ':' + (item.year || data.year || '');
   }
-
-  function absorb(results) {
+  function absorb(items) {
     var added = 0;
-    (results || []).forEach(function (item) {
+    (items || []).forEach(function (item) {
       if (!item || !item.id) return;
       var key = keyOf(item);
       if (state.seen[key]) return;
@@ -433,458 +168,220 @@
     });
     return added;
   }
-
-  /* первая страница: пробуем подходящий параметр жанра, при пустоте — второй */
+  function genreKey(name) { return GENRES.indexOf(name) >= 0 ? 'anime_genres' : 'genres'; }
+  function params(key) {
+    var f = state.filters;
+    var out = {
+      limit: LIMIT,
+      types: f.type || 'anime,anime-serial',
+      year: f.year,
+      anime_kind: f.kind,
+      anime_status: f.status,
+      translation_type: f.voice,
+      shikimori_rating: f.rating,
+      rating_mpaa: f.mpaa,
+      with_material_data: true
+    };
+    if (f.genre) out[key || genreKey(f.genre)] = f.genre;
+    if (f.title) out.title = f.title;
+    else { out.sort = f.sort; out.order = f.order; }
+    return out;
+  }
   function firstPage() {
     var f = state.filters;
     var path = f.title ? '/search' : '/list';
-    var build = f.title ? searchParams : listParams;
-
-    if (!f.genre) return ask(path, build(''));
-
-    var key = state.genreKey || genreKeyFor(f.genre);
-    return ask(path, build(key)).then(function (data) {
-      if ((data.results || []).length || state.genreKey) {
+    if (!f.genre) return ask(path, params(''));
+    var key = state.genreKey || genreKey(f.genre);
+    return ask(path, params(key)).then(function (data) {
+      if ((data.results || []).length || state.genreKey) { state.genreKey = key; return data; }
+      var other = key === 'anime_genres' ? 'genres' : 'anime_genres';
+      return ask(path, params(other)).then(function (second) {
+        if ((second.results || []).length) { state.genreKey = other; return second; }
         state.genreKey = key;
         return data;
-      }
-      var alt = otherKey(key);
-      return ask(path, build(alt))
-        .then(function (second) {
-          if ((second.results || []).length) {
-            state.genreKey = alt;
-            return second;
-          }
-          state.genreKey = key;
-          return data;
-        })
-        .catch(function () {
-          state.genreKey = key;
-          return data;
-        });
+      }).catch(function () { state.genreKey = key; return data; });
     });
   }
-
   function fetchPortion() {
     if (state.loading || state.done) return Promise.resolve();
     state.loading = true;
     state.failed = false;
     render();
-
     var gained = 0;
-
-    function absorbPage(data) {
-      if (data.total) state.total = data.total;
+    function take(data) {
+      if (data.total != null) state.total = Number(data.total) || 0;
       gained += absorb(data.results);
-      state.next = data.next_page || null;
-      if (!state.next) {
-        state.done = true;
-        return null;
-      }
-      return true;
+      state.next = data.next_page || '';
+      if (!state.next) state.done = true;
     }
-
-    function walk(hops) {
-      return askUrl(state.next).then(function (data) {
-        if (!absorbPage(data)) return null;
-        if (gained >= WANT || hops >= HOPS) return null;
-        return walk(hops + 1);
-      });
+    function walk(hop) {
+      if (!state.next || gained >= WANT || hop >= HOPS) return Promise.resolve();
+      return nextPage(state.next).then(function (data) { take(data); return walk(hop + 1); });
     }
-
-    var first = state.next ? askUrl(state.next) : firstPage();
-
-    return first
-      .then(function (data) {
-        if (!absorbPage(data)) return null;
-        if (gained >= WANT) return null;
-        return walk(1);
-      })
-      .catch(function () {
-        state.failed = true;
-      })
-      .then(function () {
-        state.loading = false;
-        render();
-      });
+    var start = state.next ? nextPage(state.next) : firstPage();
+    return start.then(function (data) { take(data); return walk(1); }).catch(function () {
+      state.failed = true;
+    }).then(function () {
+      state.loading = false;
+      render();
+    });
   }
-
   function reload() {
     state.items = [];
     state.seen = {};
-    state.next = null;
+    state.next = '';
+    state.total = 0;
     state.done = false;
     state.failed = false;
-    state.total = 0;
     state.genreKey = '';
     saveFilters();
     fetchPortion();
   }
-
-  /* списка жанров в API нет (только /search, /list, /translations),
-     так что берём аниме-жанры из документации и дополняем тем, что пришло в material_data */
-  function collectGenres() {
-    var map = {};
-    ANIME_GENRES.forEach(function (genre) { map[genre] = true; });
-    state.items.forEach(function (item) {
-      var material = item.material_data || {};
-      (material.anime_genres || []).forEach(function (genre) {
-        var name = String(genre || '').trim();
-        if (name && name.toLowerCase() !== 'аниме') map[name] = true;
-      });
-    });
-    var list = Object.keys(map).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
-    var same = state.genres && state.genres.length === list.length &&
-      state.genres.every(function (genre, index) { return genre === list[index]; });
-    state.genres = list;
-    return !same;
-  }
-
-  function fillGenreSelect() {
-    var select = byId('acGenre');
-    if (!select) return;
-    var current = state.filters.genre;
-    select.innerHTML = '<option value="">Любой жанр</option>' +
-      (state.genres || []).map(function (genre) {
-        return '<option value="' + escapeHtml(genre) + '">' + escapeHtml(genre) + '</option>';
-      }).join('');
-    select.value = current;
-  }
-
-  /* ---------------- разметка ---------------- */
-
-  function cardHtml(item) {
-    var material = item.material_data || {};
-    var name = material.anime_title || material.title || item.title || 'Без названия';
-    var year = item.year || material.year || '';
-    var poster = material.anime_poster_url || material.poster_url || '';
-    var kindRaw = material.anime_kind || material.kind || (item.type === 'anime' ? 'movie' : 'tv');
-    var kind = KIND_NAMES[kindRaw] || (item.type === 'anime' ? 'Фильм' : 'Сериал');
-    var statusRaw = material.anime_status || material.all_status || '';
-    var status = STATUS_NAMES[statusRaw] || '';
-    var episodes = item.last_episode || material.episodes_aired || material.episodes_total || 0;
-    var total = material.episodes_total || 0;
-    var rating = Number(material.shikimori_rating || material.kinopoisk_rating || material.imdb_rating || 0);
-    var genres = (material.anime_genres || material.genres || []).slice(0, 3).join(', ');
-    var image = poster
-      ? '<img src="' + escapeHtml(poster) + '" alt="" loading="lazy" decoding="async">'
-      : '';
-    var episodeLine = episodes
-      ? escapeHtml(episodes) + (total && total > episodes ? ' из ' + escapeHtml(total) : '') + ' эп.'
-      : '';
-
-    return '<a class="ac-card" href="#/kodik/' + encodeURIComponent(item.id) + '">' +
-      '<div class="ac-poster">' + image +
-      '<span class="ac-kind">' + escapeHtml(kind) + '</span>' +
-      (rating ? '<span class="ac-rate">★ ' + escapeHtml(rating.toFixed(1)) + '</span>' : '') +
-      (episodeLine ? '<span class="ac-ep">' + episodeLine + '</span>' : '') +
-      (status ? '<span class="ac-status">' + escapeHtml(status) + '</span>' : '') +
-      '</div>' +
-      '<p class="ac-name">' + escapeHtml(name) + '</p>' +
-      '<p class="ac-meta">' + escapeHtml([year || '—', genres].filter(Boolean).join(' · ')) + '</p>' +
-      '</a>';
-  }
-
-  function skeletons(count) {
-    var out = '';
-    for (var i = 0; i < count; i += 1) out += '<div class="ac-skel"></div>';
-    return out;
-  }
-
-  /* год: конкретные значения плюс диапазоны — API принимает и «2021», и «2010-2019» */
-  function yearList() {
-    var now = new Date().getFullYear();
-    var list = [
-      { id: '', label: 'Любой год' },
-      { id: String(now - 4) + '-' + String(now), label: 'Последние 5 лет' },
-      { id: '2020-' + String(now), label: '2020-е' },
-      { id: '2010-2019', label: '2010-е' },
-      { id: '2000-2009', label: '2000-е' },
-      { id: '1990-1999', label: '1990-е' },
-      { id: '1980-1989', label: '1980-е' }
-    ];
-    for (var year = now; year >= 1980; year -= 1) {
-      list.push({ id: String(year), label: String(year) });
-    }
-    return list;
-  }
-
-  function listFor(field) {
-    if (field.kind === 'year') return yearList();
-    if (field.kind === 'genre') {
-      return [{ id: '', label: 'Любой жанр' }].concat((state.genres || []).map(function (genre) {
-        return { id: genre, label: genre };
-      }));
-    }
-    return field.list || [];
-  }
-
-  function labelFor(field, value) {
-    var found = '';
-    listFor(field).forEach(function (row) {
-      if (String(row.id) === String(value)) found = row.label;
-    });
-    return found || String(value);
-  }
-
-  function options(list, selected) {
-    return list.map(function (row) {
-      return '<option value="' + escapeHtml(row.id) + '"' +
-        (String(row.id) === String(selected) ? ' selected' : '') + '>' + escapeHtml(row.label) + '</option>';
+  function optionRows(rows, value) {
+    return rows.map(function (row) {
+      return '<option value="' + escapeHtml(row[0]) + '"' + (String(row[0]) === String(value) ? ' selected' : '') + '>' + escapeHtml(row[1]) + '</option>';
     }).join('');
   }
-
-  function groupHtml(field) {
-    var value = state.filters[field.key];
-    return '<div class="ac-group">' +
-      '<span class="ac-label">' + escapeHtml(field.label) + '</span>' +
-      '<select class="ac-sel" id="' + field.id + '">' + options(listFor(field), value) + '</select>' +
-      '</div>';
+  function yearRows() {
+    var now = new Date().getFullYear();
+    var rows = [['', 'Любой год'], ['2020-' + now, '2020-е'], ['2010-2019', '2010-е'], ['2000-2009', '2000-е'], ['1990-1999', '1990-е']];
+    for (var year = now; year >= 1980; year -= 1) rows.push([String(year), String(year)]);
+    return rows;
   }
-
-  /* чипсы активных фильтров над сеткой, каждый снимается крестиком */
+  var FIELDS = [
+    ['genre', 'Жанр', [['', 'Любой жанр']].concat(GENRES.map(function (g) { return [g, g]; }))],
+    ['year', 'Год', null],
+    ['kind', 'Вид', [['', 'Любой вид'], ['tv', 'ТВ-сериал'], ['movie', 'Фильм'], ['special', 'Спешл'], ['ova', 'OVA'], ['ona', 'ONA'], ['music', 'Клип']]],
+    ['status', 'Статус', [['', 'Любой статус'], ['ongoing', 'Онгоинг'], ['released', 'Вышло'], ['anons', 'Анонс']]],
+    ['voice', 'Перевод', [['', 'Любой перевод'], ['voice', 'Озвучка'], ['subtitles', 'Субтитры']]],
+    ['rating', 'Оценка Шикимори', [['', 'Любая оценка'], ['9-10', '9+'], ['8-10', '8+'], ['7-10', '7+'], ['6-10', '6+']]],
+    ['mpaa', 'Рейтинг MPAA', [['', 'Любой рейтинг'], ['g', 'G'], ['pg', 'PG'], ['pg-13', 'PG-13'], ['r', 'R'], ['rx', 'Rx']]],
+    ['sort', 'Сортировка', [['updated_at', 'По обновлению'], ['created_at', 'По добавлению'], ['year', 'По году'], ['shikimori_rating', 'По Шикимори'], ['kinopoisk_rating', 'По Кинопоиску'], ['imdb_rating', 'По IMDb']]],
+    ['order', 'Порядок', [['desc', 'Сначала новое'], ['asc', 'Сначала старое']]]
+  ];
+  function fieldHtml(field) {
+    var rows = field[0] === 'year' ? yearRows() : field[2];
+    return '<label class="kc-group"><span class="kc-label">' + field[1] + '</span><select class="kc-select" data-filter="' + field[0] + '">' + optionRows(rows, state.filters[field[0]]) + '</select></label>';
+  }
+  function cardHtml(item) {
+    var data = material(item);
+    var poster = data.anime_poster_url || data.poster_url || '';
+    var rating = Number(data.shikimori_rating || data.kinopoisk_rating || data.imdb_rating || 0);
+    var kind = data.anime_kind || (item.type === 'anime' ? 'Фильм' : 'Сериал');
+    var episodes = item.last_episode || data.episodes_aired || data.episodes_total || '';
+    var genres = (data.anime_genres || data.genres || []).slice(0, 2).join(', ');
+    return '<a class="kc-card" href="#/kodik/' + encodeURIComponent(item.id) + '"><div class="kc-poster">' +
+      (poster ? '<img src="' + escapeHtml(poster) + '" alt="" loading="lazy" decoding="async">' : '') +
+      '<span class="kc-kind">' + escapeHtml(kind) + '</span>' +
+      (rating ? '<span class="kc-rate">★ ' + rating.toFixed(1) + '</span>' : '') +
+      (episodes ? '<span class="kc-ep">' + escapeHtml(episodes) + ' эп.</span>' : '') +
+      '</div><p class="kc-name">' + escapeHtml(titleOf(item)) + '</p><p class="kc-meta">' +
+      escapeHtml([item.year || data.year || '—', genres].filter(Boolean).join(' · ')) + '</p></a>';
+  }
   function activeHtml() {
-    var f = state.filters;
+    var labels = {};
+    FIELDS.forEach(function (field) { labels[field[0]] = field[1]; });
     var pills = [];
-
-    function pill(key, text) {
-      pills.push('<span class="ac-pill">' + escapeHtml(text) +
-        '<button type="button" data-clear="' + key + '" aria-label="Снять фильтр">×</button></span>');
-    }
-
-    if (f.title) pill('title', 'Поиск: ' + f.title);
-    if (f.type) {
-      TYPES.forEach(function (row) { if (row.id === f.type) pill('type', row.label); });
-    }
-    FIELDS.forEach(function (field) {
-      var value = f[field.key];
-      if (!value || value === DEFAULTS[field.key]) return;
-      pill(field.key, labelFor(field, value));
+    Object.keys(state.filters).forEach(function (key) {
+      var value = state.filters[key];
+      if (!value || value === DEFAULTS[key]) return;
+      pills.push('<span class="kc-pill">' + escapeHtml(labels[key] ? labels[key] + ': ' + value : value) + '<button type="button" data-clear="' + key + '" aria-label="Убрать фильтр">×</button></span>');
     });
-    if (f.studio) pill('studio', 'Студия: ' + f.studio);
-    if (f.noLgbt) pill('noLgbt', 'Без LGBT-метки');
-    if (!f.noCamrip) pill('noCamrip', 'С экранками');
-
     return pills.join('');
   }
-
+  function skeletons(count) {
+    var out = '';
+    for (var i = 0; i < count; i += 1) out += '<div class="kc-skel"></div>';
+    return out;
+  }
   function render() {
-    var grid = byId('acGrid');
+    var grid = byId('kcGrid');
     if (!grid) return;
-    var more = byId('acMore');
-    var stateLine = byId('acState');
-    var count = byId('acCount');
-    var active = byId('acActive');
-
-    grid.innerHTML = state.items.map(cardHtml).join('') +
-      (state.loading ? skeletons(state.items.length ? 6 : 18) : '');
-
-    if (collectGenres()) fillGenreSelect();
-
-    if (active) {
-      var pills = activeHtml();
-      active.innerHTML = pills;
-      active.hidden = !pills;
+    grid.innerHTML = state.items.map(cardHtml).join('') + (state.loading ? skeletons(state.items.length ? 6 : 18) : '');
+    var count = byId('kcCount');
+    if (count) count.textContent = state.items.length ? state.items.length + (state.total ? ' из ' + state.total.toLocaleString('ru-RU') : '') : '';
+    var active = byId('kcActive');
+    if (active) { active.innerHTML = activeHtml(); active.hidden = !active.innerHTML; }
+    var status = byId('kcState');
+    if (status) {
+      var text = !state.loading && state.failed ? 'Kodik сейчас не ответил. Нажмите «Повторить».' : !state.loading && !state.items.length ? 'Ничего не найдено — измените фильтры.' : '';
+      status.textContent = text;
+      status.hidden = !text;
     }
-    if (count) {
-      count.textContent = state.items.length
-        ? state.items.length + ' из ' + (state.total ? state.total.toLocaleString('ru-RU') : '—')
-        : '';
-    }
-    if (stateLine) {
-      var message = '';
-      if (!state.loading && state.failed && !state.items.length) message = 'Kodik не ответил. Нажми «Повторить» — транспорт подберётся заново.';
-      else if (!state.loading && !state.items.length) message = 'Ничего не нашлось — попробуй ослабить фильтры или нажать «Сбросить».';
-      stateLine.hidden = !message;
-      stateLine.textContent = message;
-    }
+    var more = byId('kcMore');
     if (more) {
       more.hidden = state.done && !state.failed;
       more.disabled = state.loading;
-      more.textContent = state.loading
-        ? 'Загружаем…'
-        : (state.failed ? 'Повторить' : 'Показать ещё');
+      more.textContent = state.loading ? 'Загружаем…' : state.failed ? 'Повторить' : 'Показать ещё';
     }
   }
-
   function mount(root) {
     var f = state.filters;
-
-    root.innerHTML =
-      '<div class="ac-top">' +
-      '<h1>' + escapeHtml(PAGE_TITLE) + '</h1>' +
-      '<span class="ac-count" id="acCount"></span>' +
-      '<div class="ac-top-right">' +
-      '<input class="ac-search" id="acSearch" type="search" placeholder="Поиск по названию" autocomplete="off" value="' +
-      escapeHtml(f.title) + '">' +
-      '<button type="button" class="ac-filters-btn" id="acFiltersBtn" aria-expanded="false">Фильтры</button>' +
-      '</div></div>' +
-
-      '<div class="ac-layout">' +
-      '<aside class="ac-side' + (state.sideOpen ? ' open' : '') + '" id="acSide">' +
-      '<div class="ac-group"><span class="ac-label">Тип</span><div class="ac-types" id="acTypes">' +
-      TYPES.map(function (row) {
-        return '<button type="button" class="ac-type" data-type="' + escapeHtml(row.id) + '" aria-pressed="' +
-          (row.id === f.type ? 'true' : 'false') + '">' + escapeHtml(row.label) + '</button>';
-      }).join('') + '</div></div>' +
-      FIELDS.map(groupHtml).join('') +
-      '<div class="ac-group"><span class="ac-label">Студия</span>' +
-      '<input class="ac-text" id="acStudio" type="text" placeholder="например Bones" autocomplete="off" value="' +
-      escapeHtml(f.studio) + '"></div>' +
-      '<div class="ac-checks">' +
-      '<label><input type="checkbox" id="acNoCamrip"' + (f.noCamrip ? ' checked' : '') + '> Без экранок</label>' +
-      '<label><input type="checkbox" id="acNoLgbt"' + (f.noLgbt ? ' checked' : '') + '> Без LGBT-метки</label>' +
-      '</div>' +
-      '<button type="button" class="ac-reset" id="acReset">Сбросить фильтры</button>' +
-      '</aside>' +
-
-      '<div class="ac-main">' +
-      '<div class="ac-active" id="acActive" hidden></div>' +
-      '<div class="ac-grid" id="acGrid"></div>' +
-      '<p class="ac-state" id="acState" hidden></p>' +
-      '<button type="button" class="ac-more" id="acMore" hidden>Показать ещё</button>' +
-      '<div id="acSentinel" aria-hidden="true"></div>' +
-      '</div></div>';
-
-    collectGenres();
-    fillGenreSelect();
-
-    byId('acTypes').addEventListener('click', function (event) {
-      var chip = event.target && event.target.closest ? event.target.closest('.ac-type') : null;
-      if (!chip) return;
-      f.type = chip.getAttribute('data-type') || '';
-      Array.prototype.slice.call(root.querySelectorAll('.ac-type')).forEach(function (node) {
-        node.setAttribute('aria-pressed', node === chip ? 'true' : 'false');
-      });
-      reload();
+    root.innerHTML = '<div class="kc-head"><h1>Каталог Kodik</h1><span class="kc-count" id="kcCount"></span>' +
+      '<button type="button" class="kc-filter-toggle" id="kcToggle" aria-expanded="false">Фильтры</button>' +
+      '<input class="kc-search" id="kcSearch" type="search" placeholder="Поиск по названию" autocomplete="off" value="' + escapeHtml(f.title) + '"></div>' +
+      '<div class="kc-layout"><aside class="kc-side" id="kcSide"><div class="kc-group"><span class="kc-label">Тип</span><div class="kc-types">' +
+      [['', 'Все'], ['anime-serial', 'Сериалы'], ['anime', 'Фильмы']].map(function (row) {
+        return '<button class="kc-type" type="button" data-type="' + row[0] + '" aria-pressed="' + (f.type === row[0] ? 'true' : 'false') + '">' + row[1] + '</button>';
+      }).join('') + '</div></div>' + FIELDS.map(fieldHtml).join('') +
+      '<button class="kc-reset" type="button" id="kcReset">Сбросить фильтры</button></aside>' +
+      '<main><div class="kc-active" id="kcActive" hidden></div><div class="kc-grid" id="kcGrid"></div>' +
+      '<p class="kc-state" id="kcState" hidden></p><button class="kc-more" type="button" id="kcMore">Показать ещё</button>' +
+      '<div id="kcSentinel" aria-hidden="true"></div></main></div>';
+    var timer = null;
+    byId('kcSearch').addEventListener('input', function (event) {
+      clearTimeout(timer);
+      var value = event.target.value;
+      timer = setTimeout(function () { f.title = value.trim(); reload(); }, 350);
     });
-
-    var search = byId('acSearch');
-    var searchTimer = null;
-    search.addEventListener('input', function () {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(function () {
-        f.title = search.value.trim();
-        reload();
-      }, 400);
+    root.addEventListener('click', function click(event) {
+      var type = event.target.closest('[data-type]');
+      if (type) { f.type = type.getAttribute('data-type'); mount(root); reload(); return; }
+      var clear = event.target.closest('[data-clear]');
+      if (clear) { var key = clear.getAttribute('data-clear'); f[key] = DEFAULTS[key]; mount(root); reload(); }
+    }, { once: false });
+    Array.prototype.slice.call(root.querySelectorAll('[data-filter]')).forEach(function (select) {
+      select.addEventListener('change', function () { f[select.getAttribute('data-filter')] = select.value; reload(); });
     });
-
-    var studio = byId('acStudio');
-    var studioTimer = null;
-    studio.addEventListener('input', function () {
-      clearTimeout(studioTimer);
-      studioTimer = setTimeout(function () {
-        f.studio = studio.value.trim();
-        reload();
-      }, 500);
-    });
-
-    FIELDS.forEach(function (field) {
-      var node = byId(field.id);
-      if (!node) return;
-      node.addEventListener('change', function () {
-        f[field.key] = node.value;
-        reload();
-      });
-    });
-
-    [['acNoCamrip', 'noCamrip'], ['acNoLgbt', 'noLgbt']].forEach(function (pair) {
-      var node = byId(pair[0]);
-      if (!node) return;
-      node.addEventListener('change', function () {
-        f[pair[1]] = !!node.checked;
-        reload();
-      });
-    });
-
-    var toggle = byId('acFiltersBtn');
-    toggle.addEventListener('click', function () {
+    byId('kcReset').addEventListener('click', function () { state.filters = cloneDefaults(); saveFilters(); mount(root); reload(); });
+    byId('kcToggle').addEventListener('click', function () {
       state.sideOpen = !state.sideOpen;
-      var side = byId('acSide');
-      if (side) side.classList.toggle('open', state.sideOpen);
-      toggle.setAttribute('aria-expanded', state.sideOpen ? 'true' : 'false');
+      byId('kcSide').classList.toggle('open', state.sideOpen);
+      byId('kcToggle').setAttribute('aria-expanded', state.sideOpen ? 'true' : 'false');
     });
-
-    /* крестик на чипсе снимает один фильтр и пересобирает панель */
-    byId('acActive').addEventListener('click', function (event) {
-      var button = event.target && event.target.closest ? event.target.closest('[data-clear]') : null;
-      if (!button) return;
-      var key = button.getAttribute('data-clear');
-      if (!(key in DEFAULTS)) return;
-      f[key] = DEFAULTS[key];
-      mount(root);
-      reload();
-    });
-
-    byId('acReset').addEventListener('click', function () {
-      state.filters = freshFilters();
-      saveFilters();
-      mount(root);
-      reload();
-    });
-
-    byId('acMore').addEventListener('click', function () {
-      if (state.failed) {
-        state.failed = false;
-        state.done = false;
-        if (window.AnimKodikNet && window.AnimKodikNet.resolve) window.AnimKodikNet.resolve(true);
-      }
+    byId('kcMore').addEventListener('click', function () {
+      if (state.failed) { state.failed = false; state.done = false; if (window.AnimKodikNet) window.AnimKodikNet.resolve(true); }
       fetchPortion();
     });
-
     if (window.IntersectionObserver) {
       var observer = new IntersectionObserver(function (entries) {
-        if (state.failed) return;
-        if (entries.some(function (entry) { return entry.isIntersecting; })) fetchPortion();
+        if (!state.failed && entries.some(function (entry) { return entry.isIntersecting; })) fetchPortion();
       }, { rootMargin: '600px 0px' });
-      observer.observe(byId('acSentinel'));
+      observer.observe(byId('kcSentinel'));
     }
-
     state.mounted = true;
     render();
     if (!state.items.length) fetchPortion();
   }
-
+  function onCatalog() { return /^#\/kodik\/?(?:\?|$)/.test(location.hash || ''); }
   function pass() {
     injectCss();
-    renameNav();
-    var hash = location.hash || '';
-    if (!/^#\/kodik\/?$/.test(hash)) {
-      state.mounted = false;
-      return;
-    }
-    var root = byId('kbRoot');
-    if (!root) return;
-    if (state.mounted && byId('acGrid')) return;
-    if (!root.children.length) return;
-    mount(root);
+    if (!onCatalog()) { state.mounted = false; return; }
+    var parts = ensureView();
+    showView(parts.view);
+    if (!byId('kcGrid')) mount(parts.root);
   }
-
   function start() {
     pass();
-    window.addEventListener('hashchange', function () {
-      state.mounted = false;
-      setTimeout(pass, 120);
-      setTimeout(pass, 600);
+    window.addEventListener('hashchange', function () { state.mounted = false; setTimeout(pass, 0); setTimeout(pass, 650); });
+    var observer = new MutationObserver(function () {
+      clearTimeout(start.timer);
+      start.timer = setTimeout(pass, 100);
     });
-    if (document.body && window.MutationObserver) {
-      var observer = new MutationObserver(function () {
-        clearTimeout(start.timer);
-        start.timer = setTimeout(pass, 120);
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-    }
+    observer.observe(document.body, { childList: true, subtree: true });
     setTimeout(pass, 800);
-    setTimeout(renameNav, 1500);
   }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
-
-  window.AnimCatalog = {
-    reload: reload,
-    genres: function () { return state.genres || []; },
-    filters: function () { return state.filters; },
-    state: function () { return state; }
-  };
+  window.AnimCatalog = { reload: reload, filters: function () { return state.filters; }, state: function () { return state; } };
 })();
