@@ -1,10 +1,7 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
-   но специально скачанные серии отдаются из отдельного кэша.
+   но специально скачанные серии отдаются из отдельного кэша. */
 
-   В SHELL храним URL без ?v= и ищем с ignoreSearch. Версию CACHE нужно
-   повышать при любом изменении оболочки, чтобы старые файлы не переживали релиз. */
-
-const CACHE = 'animru-v26'
+const CACHE = 'animru-v27'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
@@ -21,6 +18,7 @@ const SHELL = [
   'kodik.js',
   'polish.js',
   'kodik-net.js',
+  'mobile-nav.js',
   'mobilefix.js',
   'offline.js',
   'schedule.js',
@@ -84,18 +82,12 @@ async function shellFirst(req) {
     const response = await fetch(req)
     if (response && response.ok && response.type === 'basic') {
       const copy = response.clone()
-      caches
-        .open(CACHE)
-        .then((cache) => cache.put(req, copy))
-        .catch(() => {})
+      caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {})
     }
     return response
   } catch {
     const hit = await fromShell(req)
     if (hit) return hit
-
-    /* index.html допустим только как fallback документа. Возврат HTML вместо
-       CSS/JS создавал ложный MIME type и скрывал настоящую сетевую ошибку. */
     if (req.mode === 'navigate') {
       const shell = await caches.match('index.html', { ignoreSearch: true })
       if (shell) return shell
@@ -107,7 +99,6 @@ async function shellFirst(req) {
 async function handle(req, url) {
   const saved = await fromOffline(req)
   if (saved) return saved
-
   if (url.origin !== self.location.origin || isMedia(url)) return fetch(req)
   return shellFirst(req)
 }
@@ -115,14 +106,12 @@ async function handle(req, url) {
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
-
   let url
   try {
     url = new URL(req.url)
   } catch {
     return
   }
-
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
   event.respondWith(handle(req, url))
 })

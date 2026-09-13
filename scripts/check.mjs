@@ -7,7 +7,6 @@ const localPath = (ref) => ref.split('?')[0].replace(/^\.\//, '');
 
 const html = read('index.html');
 const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
-
 for (const ref of refs) {
   if (/^(https?:|data:|#|mailto:)/.test(ref)) continue;
   const file = localPath(ref);
@@ -29,28 +28,25 @@ const open = (css.match(/{/g) || []).length;
 const close = (css.match(/}/g) || []).length;
 if (open !== close) problems.push(`style.css: не совпадает число скобок (${open} против ${close})`);
 
-const jsFiles = readdirSync('.').filter((name) => name.endsWith('.js'));
-for (const file of jsFiles) {
+for (const file of readdirSync('.').filter((name) => name.endsWith('.js'))) {
   const code = read(file);
   if (/console\.log\(/.test(code)) problems.push(`${file}: остался console.log`);
   if (/\bTODO\b|\bFIXME\b/.test(code)) problems.push(`${file}: остался TODO/FIXME`);
 }
 
-/* Динамические модули из extras.js обязаны существовать и входить в офлайн-оболочку. */
-const extras = read('extras.js');
-const dynamicBlock = extras.match(/\[([^\]]+)\]\.forEach\(function \(file\)/s);
-const dynamicFiles = dynamicBlock
-  ? [...dynamicBlock[1].matchAll(/['"]([^'"]+\.js)['"]/g)].map((match) => match[1])
-  : [];
-if (!dynamicFiles.length) problems.push('extras.js: не удалось определить список динамических модулей');
-
+/* Все локальные JS-модули, подключаемые динамически, должны существовать и
+   входить в офлайн-оболочку. */
+const loaderCode = read('extras.js') + '\n' + read('config.js');
+const dynamicFiles = [...new Set(
+  [...loaderCode.matchAll(/['"]([^'"]+\.js)['"]/g)].map((match) => match[1]),
+)];
 const worker = read('sw.js');
 const shellBlock = worker.match(/const SHELL = \[([\s\S]*?)\]/);
 const shellFiles = shellBlock
   ? [...shellBlock[1].matchAll(/['"]([^'"]+)['"]/g)].map((match) => localPath(match[1]))
   : [];
 for (const file of dynamicFiles) {
-  if (!existsSync(file)) problems.push(`extras.js подключает отсутствующий файл: ${file}`);
+  if (!existsSync(file)) problems.push(`Загрузчик подключает отсутствующий файл: ${file}`);
   if (!shellFiles.includes(file)) problems.push(`sw.js не кэширует динамический модуль: ${file}`);
 }
 
