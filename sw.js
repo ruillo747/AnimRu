@@ -1,7 +1,7 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша. */
 
-const CACHE = 'animru-v28'
+const CACHE = 'animru-v29'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
@@ -31,9 +31,7 @@ const SHELL = [
 
 async function precache() {
   const cache = await caches.open(CACHE)
-  await Promise.all(
-    SHELL.map((url) => cache.add(url).catch(() => {})),
-  )
+  await Promise.all(SHELL.map((url) => cache.add(url).catch(() => {})))
 }
 
 self.addEventListener('install', (event) => {
