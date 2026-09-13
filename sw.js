@@ -1,38 +1,49 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
-   но специально скачанные серии отдаются из отдельного кэша. */
+   но специально скачанные серии отдаются из отдельного кэша.
 
-const CACHE = 'animru-v20'
+   Важно: в SHELL держим URL БЕЗ строки запроса (?v=...), а при поиске в кэше
+   используем ignoreSearch. Иначе версия в index.html и версия здесь расходятся,
+   предзагруженные файлы никогда не отдаются, а офлайн-оболочка ломается. */
+
+const CACHE = 'animru-v21'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
   './',
   'index.html',
-  'style.css?v=9',
-  'config.js?v=20',
-  'db.js?v=9',
-  'gamify.js?v=9',
-  'app.js?v=9',
-  'auth.js?v=9',
-  'social.js?v=9',
-  'extras.js?v=20',
-  'kodik.js?v=9',
-  'polish.js?v=20',
-  'kodik-net.js?v=20',
-  'mobilefix.js?v=20',
-  'offline.js?v=20',
-  'schedule.js?v=20',
-  'kodik-browse.js?v=20',
-  'catalog.js?v=20',
+  'style.css',
+  'config.js',
+  'db.js',
+  'gamify.js',
+  'app.js',
+  'auth.js',
+  'social.js',
+  'extras.js',
+  'kodik.js',
+  'polish.js',
+  'kodik-net.js',
+  'mobilefix.js',
+  'offline.js',
+  'schedule.js',
+  'kodik-browse.js',
+  'catalog.js',
   'manifest.webmanifest',
 ]
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting()),
+/* addAll падает целиком, если хотя бы один файл недоступен, поэтому кэшируем поштучно */
+async function precache() {
+  const cache = await caches.open(CACHE)
+  await Promise.all(
+    SHELL.map((url) =>
+      cache.add(url).catch(() => {
+        /* отсутствующий файл не должен ломать установку */
+      }),
+    ),
   )
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(precache().then(() => self.skipWaiting()))
 })
 
 self.addEventListener('activate', (event) => {
@@ -60,6 +71,16 @@ async function fromOffline(req) {
   }
 }
 
+/* ищем в кэше оболочки, не обращая внимания на ?v=... */
+async function fromShell(req) {
+  try {
+    const cache = await caches.open(CACHE)
+    return await cache.match(req, { ignoreSearch: true, ignoreVary: true })
+  } catch {
+    return undefined
+  }
+}
+
 async function shellFirst(req) {
   try {
     const res = await fetch(req)
@@ -72,8 +93,10 @@ async function shellFirst(req) {
     }
     return res
   } catch {
-    const hit = await caches.match(req)
-    return hit || (await caches.match('index.html')) || Response.error()
+    const hit = await fromShell(req)
+    if (hit) return hit
+    const shell = await caches.match('index.html', { ignoreSearch: true })
+    return shell || Response.error()
   }
 }
 
