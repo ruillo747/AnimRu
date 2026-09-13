@@ -1,7 +1,7 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша. */
 
-const CACHE = 'animru-v27'
+const CACHE = 'animru-v28'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
@@ -19,6 +19,7 @@ const SHELL = [
   'polish.js',
   'kodik-net.js',
   'mobile-nav.js',
+  'unified-catalog.js',
   'mobilefix.js',
   'offline.js',
   'schedule.js',
@@ -31,11 +32,7 @@ const SHELL = [
 async function precache() {
   const cache = await caches.open(CACHE)
   await Promise.all(
-    SHELL.map((url) =>
-      cache.add(url).catch(() => {
-        /* Один необязательный файл не должен отменять установку целиком. */
-      }),
-    ),
+    SHELL.map((url) => cache.add(url).catch(() => {})),
   )
 }
 
@@ -47,9 +44,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE && key !== OFFLINE).map((key) => caches.delete(key))),
-      )
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE && key !== OFFLINE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   )
 })
