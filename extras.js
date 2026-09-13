@@ -88,7 +88,7 @@
 
   /* ---------------- подключение модулей: доводка интерфейса, транспорт Kodik, мобильные фиксы, офлайн, расписание, каталог Kodik, надстройка плеера ---------------- */
 
-  var ASSET_VERSION = '23';
+  var ASSET_VERSION = '24';
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
