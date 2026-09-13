@@ -86,9 +86,9 @@
     });
   }
 
-  /* ---------------- подключение модулей: доводка интерфейса, транспорт Kodik, мобильные фиксы, офлайн, расписание, каталог Kodik ---------------- */
+  /* ---------------- подключение модулей: доводка интерфейса, транспорт Kodik, мобильные фиксы, офлайн, расписание, каталог Kodik, надстройка плеера ---------------- */
 
-  var ASSET_VERSION = '22';
+  var ASSET_VERSION = '23';
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
@@ -103,7 +103,7 @@
       ].join('');
       document.head.appendChild(style);
     }
-    ['polish.js', 'kodik-net.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js', 'catalog.js'].forEach(function (file) {
+    ['polish.js', 'kodik-net.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js', 'catalog.js', 'player-plus.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
       script.src = file + '?v=' + ASSET_VERSION;
