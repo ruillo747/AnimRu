@@ -1,7 +1,7 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша. */
 
-const CACHE = 'animru-v29'
+const CACHE = 'animru-v28'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
