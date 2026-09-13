@@ -1,33 +1,31 @@
 /* AnimRu — надстройка над встроенным плеером (источник Anilibria):
-   редизайн панели, плавная прокрутка без рывков, превью кадра на таймлайне как в YouTube,
-   мини-плеер при прокрутке страницы, жесты перемотки и колёсико громкости.
-   Всё работает поверх app.js: своих источников не загружаем, только дополняем. */
+   редизайн панели, ровная полоса прогресса, превью кадра на таймлайне как в YouTube,
+   мини-плеер при прокрутке страницы и жесты перемотки.
+   Важно: ничего не отбираем у app.js — только добавляем сверху,
+   и никогда не перехватываем обычную прокрутку страницы. */
 (function () {
   'use strict';
 
   var LS_VOL = 'animru:volume';
-  var PREVIEW_W = 168;
-  var PREVIEW_H = 94;
+  var SHOT_W = 168;
+  var SHOT_H = 94;
 
   var CSS = [
-    'html{scroll-behavior:smooth}',
-
-    /* ---- корпус плеера ---- */
+    /* ---- корпус ---- */
     '.player{border-radius:16px;overflow:hidden;background:#07070a}',
     '.player.ap-hidecursor{cursor:none}',
     '.player .p-controls{background:linear-gradient(to top,rgba(6,6,9,0.92) 0%,rgba(6,6,9,0.6) 48%,rgba(6,6,9,0) 100%);' +
-      'padding:26px 14px 10px;transition:opacity 180ms ease,transform 180ms ease}',
-    '.player.hide-ui .p-controls{transform:translateY(6px)}',
+      'padding:26px 14px 10px}',
 
     /* ---- таймлайн ---- */
-    '.player .p-seek{position:relative;padding:10px 0 8px;cursor:pointer;touch-action:none}',
+    '.player .p-seek{position:relative;padding:10px 0 8px;cursor:pointer}',
     '.player .p-seek-track{position:relative;height:4px;border-radius:999px;background:rgba(255,255,255,0.22);' +
       'transition:height 120ms ease}',
     '.player .p-seek:hover .p-seek-track,.player .p-seek.ap-drag .p-seek-track{height:6px}',
     '.player .p-buffer{position:absolute;left:0;top:0;height:100%;border-radius:999px;background:rgba(255,255,255,0.34)}',
     '.player .p-played{position:absolute;left:0;top:0;height:100%;border-radius:999px;background:var(--accent);' +
-      'box-shadow:0 0 10px rgba(255,126,29,0.45)}',
-    '.player .ap-hover{position:absolute;left:0;top:0;height:100%;border-radius:999px;' +
+      'box-shadow:0 0 10px rgba(255,126,29,0.4)}',
+    '.player .ap-hover{position:absolute;left:0;top:0;height:100%;width:0;border-radius:999px;' +
       'background:rgba(255,255,255,0.3);opacity:0;transition:opacity 120ms ease}',
     '.player .p-seek:hover .ap-hover{opacity:1}',
     '.player .p-knob{position:absolute;right:-7px;top:50%;width:14px;height:14px;margin-top:-7px;border-radius:50%;' +
@@ -35,15 +33,15 @@
     '.player .p-seek:hover .p-knob,.player .p-seek.ap-drag .p-knob{transform:scale(1)}',
     '.player #pTip{display:none !important}',
 
-    /* ---- мини-экранчик превью ---- */
-    '.ap-tip{position:absolute;bottom:26px;left:0;z-index:6;display:none;flex-direction:column;align-items:center;' +
-      'gap:0;pointer-events:none;transform:translateX(-50%)}',
+    /* ---- мини-экранчик над таймлайном (живёт в корне плеера, чтобы не обрезался) ---- */
+    '.ap-tip{position:absolute;left:0;bottom:0;z-index:9;display:none;flex-direction:column;align-items:center;' +
+      'pointer-events:none;transform:translateX(-50%)}',
     '.ap-tip.on{display:flex}',
-    '.ap-tip-shot{width:' + PREVIEW_W + 'px;height:' + PREVIEW_H + 'px;border-radius:10px;overflow:hidden;' +
-      'background:#0c0c10;border:1px solid rgba(255,255,255,0.16);box-shadow:0 12px 28px rgba(0,0,0,0.55)}',
-    '.ap-tip-shot canvas{width:100%;height:100%;display:block}',
-    '.ap-tip-shot.empty{display:none}',
-    '.ap-tip-time{margin-top:6px;padding:3px 8px;border-radius:6px;background:rgba(8,8,11,0.9);color:#fff;' +
+    '.ap-shot{width:' + SHOT_W + 'px;height:' + SHOT_H + 'px;border-radius:10px;overflow:hidden;background:#0c0c10;' +
+      'border:1px solid rgba(255,255,255,0.16);box-shadow:0 12px 28px rgba(0,0,0,0.55);display:none}',
+    '.ap-shot.on{display:block}',
+    '.ap-shot canvas{width:100%;height:100%;display:block}',
+    '.ap-tip-time{margin-top:6px;padding:3px 9px;border-radius:7px;background:rgba(8,8,11,0.92);color:#fff;' +
       'font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}',
 
     /* ---- кнопки ---- */
@@ -54,18 +52,14 @@
     '.player .p-btn:active{transform:scale(0.93)}',
     '.player .p-btn.p-text{padding:0 10px;font-size:13px;font-weight:700}',
     '.player .p-time{font-size:12.5px;font-variant-numeric:tabular-nums;color:#e8e8ef;padding:0 6px;white-space:nowrap}',
-    '.player .p-volume input[type="range"]{width:0;opacity:0;transition:width 160ms ease,opacity 160ms ease}',
-    '.player .p-volume:hover input[type="range"],.player .p-volume:focus-within input[type="range"]{width:84px;opacity:1}',
     '.player .p-menu{border-radius:12px;overflow:hidden;background:rgba(10,10,13,0.96);' +
       'border:1px solid rgba(255,255,255,0.12);box-shadow:0 16px 34px rgba(0,0,0,0.5)}',
+    '.player .p-bigplay{border-radius:50%;box-shadow:0 10px 30px rgba(0,0,0,0.45)}',
 
-    /* ---- большая кнопка и жесты ---- */
-    '.player .p-bigplay{border-radius:50%;box-shadow:0 10px 30px rgba(0,0,0,0.45);' +
-      'transition:transform 160ms ease,opacity 160ms ease}',
-    '.player .p-bigplay:hover{transform:translate(-50%,-50%) scale(1.06)}',
-    '.ap-jump{position:absolute;top:50%;z-index:4;display:flex;flex-direction:column;align-items:center;gap:4px;' +
-      'transform:translateY(-50%) scale(0.9);padding:14px 18px;border-radius:999px;background:rgba(8,8,11,0.62);' +
-      'color:#fff;font-size:13px;font-weight:700;opacity:0;pointer-events:none;transition:opacity 180ms ease,transform 180ms ease}',
+    /* ---- жесты и подсказки ---- */
+    '.ap-jump{position:absolute;top:50%;z-index:4;transform:translateY(-50%) scale(0.9);padding:12px 18px;' +
+      'border-radius:999px;background:rgba(8,8,11,0.62);color:#fff;font-size:13px;font-weight:700;opacity:0;' +
+      'pointer-events:none;transition:opacity 180ms ease,transform 180ms ease}',
     '.ap-jump.left{left:8%}',
     '.ap-jump.right{right:8%}',
     '.ap-jump.on{opacity:1;transform:translateY(-50%) scale(1)}',
@@ -77,18 +71,16 @@
     /* ---- мини-плеер ---- */
     '.player.ap-mini{position:fixed;right:18px;bottom:18px;left:auto;top:auto;width:340px;max-width:46vw;' +
       'aspect-ratio:16/9;z-index:70;border-radius:14px;box-shadow:0 22px 48px rgba(0,0,0,0.6);' +
-      'border:1px solid rgba(255,255,255,0.12);animation:ap-mini-in 200ms ease}',
-    '@keyframes ap-mini-in{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}',
+      'border:1px solid rgba(255,255,255,0.12)}',
     '.player.ap-mini .p-controls{padding:14px 8px 6px}',
     '.player.ap-mini .p-time,.player.ap-mini .p-volume,.player.ap-mini .p-select{display:none}',
     '.ap-mini-x{position:absolute;right:6px;top:6px;z-index:8;width:28px;height:28px;border:0;border-radius:50%;' +
       'background:rgba(8,8,11,0.7);color:#fff;font-size:16px;line-height:1;cursor:pointer;display:none}',
     '.player.ap-mini .ap-mini-x{display:block}',
-    '.ap-mini-slot{display:none}',
-    '.ap-mini-slot.on{display:block;width:100%;aspect-ratio:16/9;border-radius:16px;border:1px dashed var(--line);' +
-      'background:var(--surface-2)}',
+    '.ap-slot{display:none}',
+    '.ap-slot.on{display:block;width:100%;border-radius:16px;border:1px dashed var(--line);background:var(--surface-2)}',
     '@media (max-width:620px){.player.ap-mini{width:62vw;max-width:none;right:10px;bottom:10px}}',
-    '@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.player *{transition:none !important}}'
+    '@media (prefers-reduced-motion:reduce){.player *{transition:none !important}}'
   ].join('');
 
   function byId(id) { return document.getElementById(id); }
@@ -110,11 +102,12 @@
     return hours ? hours + ':' + tail : tail;
   }
 
-  /* ---------------- источник для превью ----------------
-     Для HLS плеер получает blob-адрес, из которого вторую дорожку не соберёшь,
-     поэтому запоминаем реальный адрес плейлиста на уровне Hls.loadSource. */
+  /* ---------------- откуда берём кадры ----------------
+     HLS в основном видео живёт через blob, из него вторую дорожку не собрать,
+     поэтому перехватываем адрес плейлиста на Hls.prototype.loadSource. */
 
   var lastSource = '';
+  var diag = { source: '', mode: '', ready: false, error: '', frames: 0 };
 
   function hookHls() {
     var Hls = window.Hls;
@@ -122,122 +115,177 @@
     var original = Hls.prototype.loadSource;
     Hls.prototype.loadSource = function (url) {
       lastSource = String(url || '');
-      preview.reset();
+      shots.reset();
       return original.apply(this, arguments);
     };
     Hls.prototype.__animruHooked = true;
   }
 
-  /* ---------------- мини-экранчик: кадр под курсором ---------------- */
-
-  var preview = {
+  var shots = {
     video: null,
     hls: null,
+    source: '',
     ready: false,
     dead: false,
-    source: '',
-    pending: null,
     busy: false,
+    want: null,
 
     reset: function () {
       this.ready = false;
       this.dead = false;
+      this.busy = false;
+      this.want = null;
       this.source = '';
-      if (this.hls && this.hls.destroy) {
+      diag.ready = false;
+      diag.frames = 0;
+      if (this.hls) {
         try { this.hls.destroy(); } catch (e) {}
         this.hls = null;
       }
       if (this.video) {
-        try { this.video.removeAttribute('src'); this.video.load(); } catch (e) {}
+        try {
+          this.video.removeAttribute('src');
+          this.video.load();
+        } catch (e) {}
       }
-      var shot = document.querySelector('.ap-tip-shot');
-      if (shot) shot.classList.add('empty');
+      var box = document.querySelector('.ap-shot');
+      if (box) box.classList.remove('on');
     },
 
-    sourceUrl: function (main) {
+    url: function (main) {
       var direct = main && main.currentSrc ? String(main.currentSrc) : '';
       if (direct && direct.indexOf('blob:') !== 0) return direct;
       return lastSource;
     },
 
+    shadow: function () {
+      if (this.video) return this.video;
+      var node = document.createElement('video');
+      node.muted = true;
+      node.defaultMuted = true;
+      node.playsInline = true;
+      node.setAttribute('playsinline', '');
+      node.preload = 'auto';
+      /* crossOrigin не ставим: без CORS-заголовков видео вообще не загрузится */
+      node.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none';
+      document.body.appendChild(node);
+      this.video = node;
+      return node;
+    },
+
     ensure: function (main) {
       if (this.dead) return null;
-      var url = this.sourceUrl(main);
-      if (!url) return null;
-      if (this.video && this.source === url) return this.video;
+      var url = this.url(main);
+      if (!url) { diag.error = 'no-source'; return null; }
+      if (this.source === url && this.video) return this.video;
 
       this.reset();
       this.source = url;
+      diag.source = url;
+      var node = this.shadow();
+      var self = this;
 
-      if (!this.video) {
-        var shadow = document.createElement('video');
-        shadow.muted = true;
-        shadow.defaultMuted = true;
-        shadow.playsInline = true;
-        shadow.preload = 'auto';
-        shadow.crossOrigin = 'anonymous';
-        shadow.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px';
-        document.body.appendChild(shadow);
-        this.video = shadow;
+      function markReady() {
+        self.ready = true;
+        diag.ready = true;
       }
 
-      var self = this;
-      this.video.addEventListener('loadeddata', function () { self.ready = true; }, { once: true });
-      this.video.addEventListener('error', function () { self.dead = true; }, { once: true });
+      node.addEventListener('loadeddata', markReady);
+      node.addEventListener('canplay', markReady);
+      node.addEventListener('error', function () {
+        self.dead = true;
+        diag.error = 'media-error';
+      });
 
-      if (/\.m3u8(\?|$)/i.test(url) && window.Hls && window.Hls.isSupported && window.Hls.isSupported()) {
+      var isHls = /\.m3u8(\?|$)/i.test(url);
+      if (isHls && window.Hls && window.Hls.isSupported && window.Hls.isSupported()) {
+        diag.mode = 'hls';
         try {
-          this.hls = new window.Hls({ maxBufferLength: 4, maxMaxBufferLength: 8, capLevelToPlayerSize: true });
-          this.hls.loadSource(url);
-          this.hls.attachMedia(this.video);
-          /* самое низкое качество: картинка маленькая, зато появляется быстро */
-          this.hls.on(window.Hls.Events.MANIFEST_PARSED, function () {
-            if (self.hls) self.hls.currentLevel = 0;
+          var hls = new window.Hls({
+            maxBufferLength: 6,
+            maxMaxBufferLength: 12,
+            capLevelToPlayerSize: false,
+            startLevel: 0
           });
+          hls.on(window.Hls.Events.MANIFEST_PARSED, function () {
+            /* самое низкое качество: картинка мелкая, зато грузится быстро */
+            try { hls.currentLevel = 0; } catch (e) {}
+            markReady();
+          });
+          hls.on(window.Hls.Events.ERROR, function (event, data) {
+            if (data && data.fatal) {
+              self.dead = true;
+              diag.error = 'hls-fatal';
+            }
+          });
+          hls.loadSource(url);
+          hls.attachMedia(node);
+          this.hls = hls;
         } catch (e) {
           this.dead = true;
+          diag.error = 'hls-init';
           return null;
         }
+      } else if (isHls && !(node.canPlayType && node.canPlayType('application/vnd.apple.mpegurl'))) {
+        this.dead = true;
+        diag.error = 'no-hls';
+        return null;
       } else {
-        this.video.src = url;
-        try { this.video.load(); } catch (e) {}
+        diag.mode = 'native';
+        node.src = url;
+        try { node.load(); } catch (e) {}
       }
-      return this.video;
+      return node;
     },
 
-    draw: function (canvas, time) {
-      var shadow = this.video;
-      if (!shadow || !this.ready || this.dead) return;
-      if (this.busy) { this.pending = time; return; }
+    /* просим кадр на секунде time и рисуем его на canvas */
+    grab: function (canvas, time) {
+      var node = this.video;
+      if (!node || this.dead) return;
+      if (this.busy) { this.want = time; return; }
       this.busy = true;
       var self = this;
+      var done = false;
 
       function paint() {
+        if (done) return;
+        done = true;
+        node.removeEventListener('seeked', paint);
         try {
-          var context = canvas.getContext('2d');
-          context.drawImage(shadow, 0, 0, canvas.width, canvas.height);
-          var shot = canvas.parentNode;
-          if (shot) shot.classList.remove('empty');
+          canvas.getContext('2d').drawImage(node, 0, 0, canvas.width, canvas.height);
+          diag.frames += 1;
+          var box = canvas.parentNode;
+          if (box) box.classList.add('on');
         } catch (e) {
-          self.dead = true;
+          diag.error = 'draw:' + (e && e.name ? e.name : 'fail');
         }
         self.busy = false;
-        if (self.pending != null) {
-          var next = self.pending;
-          self.pending = null;
-          if (Math.abs(next - shadow.currentTime) > 0.6) self.draw(canvas, next);
+        if (self.want != null) {
+          var next = self.want;
+          self.want = null;
+          if (Math.abs(next - node.currentTime) > 0.7) self.grab(canvas, next);
         }
       }
 
-      shadow.addEventListener('seeked', paint, { once: true });
+      node.addEventListener('seeked', paint);
       setTimeout(function () {
-        if (self.busy) { self.busy = false; }
-      }, 1200);
-      try { shadow.currentTime = time; } catch (e) { this.busy = false; }
+        if (!done) {
+          done = true;
+          node.removeEventListener('seeked', paint);
+          self.busy = false;
+        }
+      }, 1500);
+
+      try {
+        node.currentTime = Math.max(0.1, time);
+      } catch (e) {
+        this.busy = false;
+        diag.error = 'seek-fail';
+      }
     }
   };
 
-  /* ---------------- основная сборка ---------------- */
+  /* ---------------- сборка надстроек ---------------- */
 
   function boot() {
     injectCss();
@@ -246,28 +294,26 @@
     var root = byId('playerRoot');
     var video = byId('player');
     var seek = byId('pSeek');
-    if (!root || !video || !seek || root.getAttribute('data-plus')) return false;
+    if (!root || !video || !seek || root.getAttribute('data-plus')) return !!(root && root.getAttribute('data-plus'));
     root.setAttribute('data-plus', '1');
 
-    var track = seek.querySelector('.p-seek-track');
+    var track = seek.querySelector('.p-seek-track') || seek;
     var played = byId('pPlayed');
     var buffer = byId('pBuffer');
 
-    /* подсветка дорожки до курсора */
     var hover = document.createElement('div');
     hover.className = 'ap-hover';
-    if (track) track.insertBefore(hover, played || null);
+    if (track && track !== seek) track.insertBefore(hover, played || null);
 
-    /* превью-окно */
+    /* превью вешаем в корень плеера: внутри .p-seek его обрезало overflow */
     var tip = document.createElement('div');
     tip.className = 'ap-tip';
-    tip.innerHTML = '<div class="ap-tip-shot empty"><canvas width="' + PREVIEW_W + '" height="' + PREVIEW_H +
-      '"></canvas></div><div class="ap-tip-time">0:00</div>';
-    seek.appendChild(tip);
+    tip.innerHTML = '<div class="ap-shot"><canvas width="' + SHOT_W + '" height="' + SHOT_H + '"></canvas></div>' +
+      '<div class="ap-tip-time">0:00</div>';
+    root.appendChild(tip);
     var canvas = tip.querySelector('canvas');
     var tipTime = tip.querySelector('.ap-tip-time');
 
-    /* подсказки и жесты */
     var hint = document.createElement('div');
     hint.className = 'ap-hint';
     root.appendChild(hint);
@@ -301,12 +347,12 @@
       setTimeout(function () { node.classList.remove('on'); }, 400);
     }
 
-    /* ---- плавная прокрутка: полоса живёт на requestAnimationFrame,
-           а не на редких timeupdate — оттуда и были рывки ---- */
+    /* ---- ровная полоса: рисуем её на каждом кадре, но молчим,
+           пока пользователь тянет ручку — там главный app.js ---- */
     var dragging = false;
 
     function frame() {
-      if (!dragging && played && video.duration) {
+      if (!dragging && played && video.duration && isFinite(video.duration)) {
         var ratio = Math.min(1, Math.max(0, video.currentTime / video.duration));
         played.style.width = (ratio * 100).toFixed(3) + '%';
         if (buffer && video.buffered && video.buffered.length) {
@@ -318,60 +364,70 @@
     }
     requestAnimationFrame(frame);
 
-    /* ---- наведение на таймлайн ---- */
-    function ratioAt(clientX) {
-      var rect = (track || seek).getBoundingClientRect();
-      if (!rect.width) return 0;
-      return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    }
-
+    /* ---- превью на наведении ---- */
     var shotTimer = null;
 
-    function moveTip(clientX) {
-      if (!video.duration) return;
-      var ratio = ratioAt(clientX);
+    function showTip(clientX) {
+      if (!video.duration || !isFinite(video.duration)) return;
+      var trackRect = track.getBoundingClientRect();
+      var rootRect = root.getBoundingClientRect();
+      if (!trackRect.width) return;
+
+      var ratio = Math.min(1, Math.max(0, (clientX - trackRect.left) / trackRect.width));
       var time = ratio * video.duration;
-      var rect = (track || seek).getBoundingClientRect();
-      var half = PREVIEW_W / 2 + 8;
-      var x = Math.min(rect.width - half, Math.max(half, clientX - rect.left));
+      var half = SHOT_W / 2 + 8;
+      var x = Math.min(rootRect.width - half, Math.max(half, clientX - rootRect.left));
 
       hover.style.width = (ratio * 100).toFixed(2) + '%';
       tip.style.left = x + 'px';
+      tip.style.bottom = Math.max(12, rootRect.bottom - trackRect.top + 12) + 'px';
       tip.classList.add('on');
       tipTime.textContent = clock(time);
 
       clearTimeout(shotTimer);
       shotTimer = setTimeout(function () {
-        var shadow = preview.ensure(video);
-        if (shadow) preview.draw(canvas, time);
-      }, 90);
+        var node = shots.ensure(video);
+        if (node) shots.grab(canvas, time);
+      }, 110);
     }
 
-    seek.addEventListener('mousemove', function (event) { moveTip(event.clientX); });
-    seek.addEventListener('mouseleave', function () {
+    function hideTip() {
       tip.classList.remove('on');
       hover.style.width = '0%';
-    });
+    }
 
-    /* перетаскивание: показываем кадр и не даём rAF перебивать позицию */
+    seek.addEventListener('mousemove', function (event) { showTip(event.clientX); });
+    seek.addEventListener('mouseenter', function (event) { showTip(event.clientX); });
+    seek.addEventListener('mouseleave', function () { if (!dragging) hideTip(); });
+
+    /* пока тянем — показываем кадр, но ширину полосы не трогаем */
     seek.addEventListener('pointerdown', function (event) {
       dragging = true;
       seek.classList.add('ap-drag');
-      moveTip(event.clientX);
+      showTip(event.clientX);
     });
     window.addEventListener('pointermove', function (event) {
-      if (!dragging) return;
-      moveTip(event.clientX);
-      if (played && video.duration) played.style.width = (ratioAt(event.clientX) * 100).toFixed(2) + '%';
+      if (dragging) showTip(event.clientX);
     });
     window.addEventListener('pointerup', function () {
       if (!dragging) return;
       dragging = false;
       seek.classList.remove('ap-drag');
-      tip.classList.remove('on');
+      hideTip();
     });
 
-    /* ---- жесты: двойной клик по краю = ±10 секунд ---- */
+    /* на таче показываем кадр при ведении пальцем по таймлайну */
+    seek.addEventListener('touchmove', function (event) {
+      var touch = event.touches && event.touches[0];
+      if (touch) showTip(touch.clientX);
+    }, { passive: true });
+    seek.addEventListener('touchend', function () { setTimeout(hideTip, 400); });
+
+    /* при смене серии сбрасываем теневое видео */
+    video.addEventListener('loadstart', function () { shots.reset(); });
+    video.addEventListener('emptied', function () { shots.reset(); });
+
+    /* ---- двойной клик по краю = ±10 секунд ---- */
     root.addEventListener('dblclick', function (event) {
       var target = event.target;
       if (target !== video && target !== root) return;
@@ -389,8 +445,11 @@
       }
     }, true);
 
-    /* ---- колёсико над плеером меняет громкость ---- */
+    /* ---- громкость колёсиком: только с Shift, в полном экране или над самой панелью.
+           Обычная прокрутка страницы над плеером работает как всегда. ---- */
     root.addEventListener('wheel', function (event) {
+      var overControls = event.target && event.target.closest && event.target.closest('.p-controls');
+      if (!event.shiftKey && !document.fullscreenElement && !overControls) return;
       if (event.ctrlKey) return;
       event.preventDefault();
       var step = event.deltaY > 0 ? -0.05 : 0.05;
@@ -400,7 +459,6 @@
       flash('Громкость ' + Math.round(next * 100) + '%');
     }, { passive: false });
 
-    /* запоминаем громкость между сериями */
     try {
       var savedVolume = parseFloat(localStorage.getItem(LS_VOL));
       if (isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) video.volume = savedVolume;
@@ -409,7 +467,7 @@
       try { localStorage.setItem(LS_VOL, String(video.volume)); } catch (e) {}
     });
 
-    /* ---- курсор убирается вместе с панелью ---- */
+    /* ---- курсор уходит вместе с панелью ---- */
     var cursorTimer = null;
     root.addEventListener('mousemove', function () {
       root.classList.remove('ap-hidecursor');
@@ -420,17 +478,21 @@
     });
     video.addEventListener('pause', function () { root.classList.remove('ap-hidecursor'); });
 
-    /* ---- мини-плеер при прокрутке, как на YouTube ---- */
+    /* ---- мини-плеер: замещаем место заглушкой фиксированной высоты,
+           иначе страница прыгала при переходе в мини-режим ---- */
     var slot = document.createElement('div');
-    slot.className = 'ap-mini-slot';
+    slot.className = 'ap-slot';
     if (root.parentNode) root.parentNode.insertBefore(slot, root);
 
     var miniAllowed = true;
+    var miniLock = false;
 
     function setMini(on) {
+      if (miniLock) return;
       if (on === root.classList.contains('ap-mini')) return;
+      miniLock = true;
       if (on) {
-        slot.style.height = root.getBoundingClientRect().height + 'px';
+        slot.style.height = Math.round(root.getBoundingClientRect().height) + 'px';
         slot.classList.add('on');
         root.classList.add('ap-mini');
       } else {
@@ -438,18 +500,24 @@
         slot.classList.remove('on');
         slot.style.height = '';
       }
+      setTimeout(function () { miniLock = false; }, 260);
     }
+
+    var anchor = document.createElement('div');
+    anchor.style.cssText = 'width:100%;height:1px';
+    if (root.parentNode) root.parentNode.insertBefore(anchor, root);
 
     if (window.IntersectionObserver) {
       var watcher = new IntersectionObserver(function (entries) {
         entries.forEach(function (entry) {
-          var far = entry.intersectionRatio < 0.25;
           var playing = !video.paused && !video.ended && video.currentTime > 0;
-          if (far && playing && miniAllowed && !document.fullscreenElement) setMini(true);
-          if (!far) setMini(false);
+          var titleOpen = !!document.querySelector('#view-title:not([hidden])');
+          if (!titleOpen) { setMini(false); return; }
+          if (!entry.isIntersecting && playing && miniAllowed && !document.fullscreenElement) setMini(true);
+          if (entry.isIntersecting) setMini(false);
         });
-      }, { threshold: [0, 0.25, 0.6] });
-      watcher.observe(slot);
+      }, { rootMargin: '-90px 0px 0px 0px' });
+      watcher.observe(anchor);
     }
 
     miniClose.addEventListener('click', function (event) {
@@ -460,30 +528,28 @@
       setTimeout(function () { miniAllowed = true; }, 1500);
     });
 
-    root.addEventListener('dblclick', function () {
-      if (root.classList.contains('ap-mini')) {
-        setMini(false);
-        slot.scrollIntoView({ block: 'center' });
-      }
+    root.addEventListener('click', function () {
+      if (!root.classList.contains('ap-mini')) return;
+      setMini(false);
+      setTimeout(function () { anchor.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 30);
     });
 
     video.addEventListener('pause', function () { setMini(false); });
     window.addEventListener('hashchange', function () {
       setMini(false);
-      preview.reset();
+      shots.reset();
     });
 
-    /* ---- горячие клавиши в стиле YouTube: J / L / стрелки вверх-вниз / цифры ---- */
+    /* ---- клавиши в стиле YouTube ---- */
     document.addEventListener('keydown', function (event) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       var node = event.target;
       if (node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable)) return;
-      var visible = root.classList.contains('ap-mini') || document.fullscreenElement ||
-        (function () {
-          var rect = root.getBoundingClientRect();
-          return rect.top < window.innerHeight && rect.bottom > 0;
-        })();
-      if (!visible || !video.duration) return;
+      if (!video.duration || !isFinite(video.duration)) return;
+      var rect = root.getBoundingClientRect();
+      var visible = document.fullscreenElement || root.classList.contains('ap-mini') ||
+        (rect.top < window.innerHeight && rect.bottom > 0 && rect.height > 0);
+      if (!visible) return;
       var key = event.key.toLowerCase();
 
       if (key === 'j') {
@@ -507,18 +573,6 @@
       event.preventDefault();
     });
 
-    /* ---- плавный скролл к плееру при выборе серии ---- */
-    var episodes = byId('episodes');
-    if (episodes) {
-      episodes.addEventListener('click', function (event) {
-        if (!event.target || !event.target.closest) return;
-        if (!event.target.closest('button, a')) return;
-        setTimeout(function () {
-          if (window.innerWidth <= 900) slot.scrollIntoView({ block: 'start' });
-        }, 120);
-      });
-    }
-
     return true;
   }
 
@@ -537,7 +591,8 @@
   else start();
 
   window.AnimPlayerPlus = {
-    preview: function () { return preview; },
-    source: function () { return lastSource; }
+    diag: function () { return diag; },
+    source: function () { return lastSource; },
+    reset: function () { shots.reset(); }
   };
 })();
