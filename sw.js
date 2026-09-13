@@ -1,11 +1,10 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша.
 
-   Важно: в SHELL держим URL БЕЗ строки запроса (?v=...), а при поиске в кэше
-   используем ignoreSearch. Иначе версия в index.html и версия здесь расходятся,
-   предзагруженные файлы никогда не отдаются, а офлайн-оболочка ломается. */
+   В SHELL храним URL без ?v= и ищем с ignoreSearch. Версию CACHE нужно
+   повышать при любом изменении оболочки, чтобы старые файлы не переживали релиз. */
 
-const CACHE = 'animru-v21'
+const CACHE = 'animru-v26'
 const OFFLINE = 'animru-offline'
 
 const SHELL = [
@@ -27,16 +26,16 @@ const SHELL = [
   'schedule.js',
   'kodik-browse.js',
   'catalog.js',
+  'player-plus.js',
   'manifest.webmanifest',
 ]
 
-/* addAll падает целиком, если хотя бы один файл недоступен, поэтому кэшируем поштучно */
 async function precache() {
   const cache = await caches.open(CACHE)
   await Promise.all(
     SHELL.map((url) =>
       cache.add(url).catch(() => {
-        /* отсутствующий файл не должен ломать установку */
+        /* Один необязательный файл не должен отменять установку целиком. */
       }),
     ),
   )
@@ -51,7 +50,7 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE && k !== OFFLINE).map((k) => caches.delete(k))),
+        Promise.all(keys.filter((key) => key !== CACHE && key !== OFFLINE).map((key) => caches.delete(key))),
       )
       .then(() => self.clients.claim()),
   )
@@ -71,7 +70,6 @@ async function fromOffline(req) {
   }
 }
 
-/* ищем в кэше оболочки, не обращая внимания на ?v=... */
 async function fromShell(req) {
   try {
     const cache = await caches.open(CACHE)
@@ -83,25 +81,30 @@ async function fromShell(req) {
 
 async function shellFirst(req) {
   try {
-    const res = await fetch(req)
-    if (res && res.ok && res.type === 'basic') {
-      const copy = res.clone()
+    const response = await fetch(req)
+    if (response && response.ok && response.type === 'basic') {
+      const copy = response.clone()
       caches
         .open(CACHE)
         .then((cache) => cache.put(req, copy))
         .catch(() => {})
     }
-    return res
+    return response
   } catch {
     const hit = await fromShell(req)
     if (hit) return hit
-    const shell = await caches.match('index.html', { ignoreSearch: true })
-    return shell || Response.error()
+
+    /* index.html допустим только как fallback документа. Возврат HTML вместо
+       CSS/JS создавал ложный MIME type и скрывал настоящую сетевую ошибку. */
+    if (req.mode === 'navigate') {
+      const shell = await caches.match('index.html', { ignoreSearch: true })
+      if (shell) return shell
+    }
+    return Response.error()
   }
 }
 
 async function handle(req, url) {
-  /* скачанные сегменты, плейлисты и ответы API отдаём сразу из офлайн-кэша */
   const saved = await fromOffline(req)
   if (saved) return saved
 
@@ -121,6 +124,5 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
-
   event.respondWith(handle(req, url))
 })

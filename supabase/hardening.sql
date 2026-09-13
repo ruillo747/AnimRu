@@ -1,9 +1,6 @@
 -- AnimRu — дополнение к schema.sql: защита от подмены автора, рейт-лимит,
 -- закрытые оценки и агрегат rating_summary().
---
--- Скрипт идемпотентен: его можно запускать сколько угодно раз,
--- в том числе после частично успешного запуска.
--- Запускать ПОСЛЕ schema.sql.
+-- Скрипт идемпотентен. Запускать ПОСЛЕ schema.sql.
 
 -- ---------------------------------------------------------------------------
 -- 1. Автора комментария ставит база, а не клиент
@@ -47,11 +44,18 @@ security definer
 set search_path = public
 as $$
 declare
+  actor uuid := auth.uid();
   recent integer;
 begin
+  if actor is null then
+    raise exception 'требуется авторизация';
+  end if;
+
+  -- Нельзя доверять new.user_id: клиент может прислать чужой UUID, а соседний
+  -- триггер исправит автора позже. Считаем лимит только по JWT-пользователю.
   select count(*) into recent
   from public.comments c
-  where c.user_id = new.user_id
+  where c.user_id = actor
     and c.created_at > now() - interval '5 minutes';
 
   if recent >= 5 then
@@ -71,21 +75,17 @@ create trigger comments_rate_limit
 -- 3. Политики
 -- ---------------------------------------------------------------------------
 
--- удаление своего профиля
 drop policy if exists "profiles delete own" on public.profiles;
 create policy "profiles delete own" on public.profiles
   for delete using (auth.uid() = id);
 
--- было: "ratings readable" using (true) — любой мог выгрузить все оценки
--- всех пользователей. Среднее теперь считает rating_summary() ниже.
 drop policy if exists "ratings readable" on public.ratings;
 drop policy if exists "ratings read own" on public.ratings;
 create policy "ratings read own" on public.ratings
   for select using (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
--- 4. Агрегат оценок: наружу уходит только среднее, число голосов
---    и моя оценка — без чужих user_id
+-- 4. Наружу отдаём только агрегат и оценку текущего пользователя
 -- ---------------------------------------------------------------------------
 
 drop function if exists public.rating_summary(text);
