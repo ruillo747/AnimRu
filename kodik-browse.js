@@ -16,6 +16,42 @@
   var AD_NOTE = 'Реклама внутри этого плеера — от Kodik. Плеер встроен с их сайта, убрать её со своей стороны мы не можем.';
   var PAGE = 30;
 
+  /* У Kodik нет эндпоинта со списком жанров (есть только /search, /list, /translations),
+     поэтому базовый список берём из документации и дополняем жанрами из ответов API.
+     Аниме-жанры чувствительны к регистру и идут в anime_genres, общие — в genres с маленькой буквы. */
+  var ANIME_GENRES = [
+    'Боевые искусства',
+    'Боевик',
+    'Военное',
+    'Детектив',
+    'Детское',
+    'Драма',
+    'Игры',
+    'Исторический',
+    'Комедия',
+    'Меха',
+    'Мистика',
+    'Музыка',
+    'Пародия',
+    'Повседневность',
+    'Приключения',
+    'Психологическое',
+    'Романтика',
+    'Самураи',
+    'Сверхъестественное',
+    'Сейнен',
+    'Сёдзё',
+    'Сёнен',
+    'Спорт',
+    'Триллер',
+    'Ужасы',
+    'Фантастика',
+    'Фэнтези',
+    'Школа',
+    'Экшен',
+    'Этти'
+  ];
+
   var CSS = [
     '.kb-block{margin-bottom:32px}',
     '.kb-src{font-size:12px;color:var(--dim);font-weight:600}',
@@ -56,7 +92,15 @@
     homeDone: false,
     searchFor: null,
     genres: null,
-    catalog: { items: [], page: 1, loading: false, done: false, filters: { genre: '', year: '', type: '', sort: 'updated_at' } }
+    seenGenres: {},
+    catalog: {
+      items: [],
+      page: 1,
+      loading: false,
+      done: false,
+      genreKey: '',
+      filters: { genre: '', year: '', type: '', sort: 'updated_at' }
+    }
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -66,7 +110,7 @@
     var style = document.createElement('style');
     style.id = 'kodik-browse-css';
     style.textContent = CSS;
-    document.head.appendChild(style);
+    (document.head || document.documentElement).appendChild(style);
   }
 
   function escapeHtml(text) {
@@ -195,6 +239,43 @@
     return out;
   }
 
+  /* жанры из ответов API — чтобы список в фильтре жил и пополнялся сам */
+  function collectGenres(items) {
+    var added = false;
+    (items || []).forEach(function (item) {
+      var data = material(item);
+      [].concat(data.anime_genres || [], data.genres || []).forEach(function (genre) {
+        if (!genre) return;
+        var name = String(genre).trim();
+        if (!name || name.toLowerCase() === 'аниме') return;
+        if (!state.seenGenres[name]) {
+          state.seenGenres[name] = true;
+          added = true;
+        }
+      });
+    });
+    if (added) state.genres = null;
+    return added;
+  }
+
+  function genreList() {
+    if (state.genres) return state.genres;
+    var map = {};
+    ANIME_GENRES.forEach(function (genre) { map[genre] = true; });
+    Object.keys(state.seenGenres).forEach(function (genre) { map[genre] = true; });
+    state.genres = Object.keys(map).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+    return state.genres;
+  }
+
+  /* аниме-жанры идут в anime_genres, остальные — в genres */
+  function defaultGenreKey(genre) {
+    return ANIME_GENRES.indexOf(genre) >= 0 ? 'anime_genres' : 'genres';
+  }
+
+  function otherGenreKey(key) {
+    return key === 'anime_genres' ? 'genres' : 'anime_genres';
+  }
+
   /* ---------------- прогресс просмотра ---------------- */
 
   function readWatch() {
@@ -262,10 +343,10 @@
     var link = document.createElement('a');
     link.href = '#/kodik';
     link.className = 'nav-link';
-    link.dataset.tab = 'kodik';
+    link.setAttribute('data-tab', 'kodik');
     link.textContent = 'Kodik';
     var after = nav.querySelector('[data-tab="catalog"]');
-    if (after) after.after(link);
+    if (after && after.after) after.after(link);
     else nav.appendChild(link);
     link.addEventListener('click', function () { nav.classList.remove('open'); });
   }
@@ -301,6 +382,7 @@
         var rail = byId(id);
         if (!rail) return;
         var items = uniqueTitles(json.results).slice(0, 18);
+        collectGenres(items);
         rail.innerHTML = items.length ? items.map(cardHtml).join('') : '<p class="status">' + empty + '</p>';
       })
       .catch(function () {
@@ -329,13 +411,13 @@
       resume.innerHTML =
         '<div class="section-head"><h2>Продолжить на Kodik</h2></div>' +
         '<div class="rail">' + entries.map(continueCardHtml).join('') + '</div>';
-      if (anchor) anchor.before(resume);
+      if (anchor && anchor.before) anchor.before(resume);
       else home.appendChild(resume);
     }
 
     var fresh = railBlock('kodikRail', 'Новое на Kodik');
     var ongoing = railBlock('kodikOngoing', 'Онгоинги на Kodik');
-    if (anchor) {
+    if (anchor && anchor.before) {
       anchor.before(fresh);
       anchor.before(ongoing);
     } else {
@@ -347,6 +429,7 @@
       limit: 40,
       types: 'anime,anime-serial',
       sort: 'updated_at',
+      order: 'desc',
       with_material_data: true
     }, 'Kodik ничего не вернул.');
 
@@ -355,6 +438,7 @@
       types: 'anime-serial',
       anime_status: 'ongoing',
       sort: 'updated_at',
+      order: 'desc',
       with_material_data: true
     }, 'Онгоингов не нашлось.');
   }
@@ -398,6 +482,7 @@
         var current = byId('kodikFound');
         if (!current || state.searchFor !== query) return;
         var items = uniqueTitles(json.results).slice(0, 12);
+        collectGenres(items);
         current.innerHTML = head + (items.length
           ? '<div class="grid">' + items.map(cardHtml).join('') + '</div>'
           : '<p class="status">На Kodik по этому запросу ничего нет.</p>');
@@ -431,33 +516,33 @@
     return out;
   }
 
-  function loadGenres() {
-    if (state.genres) return Promise.resolve(state.genres);
-    return request('/genres', { genres_type: 'anime' })
-      .then(function (json) {
-        state.genres = (json.results || [])
-          .map(function (row) { return typeof row === 'string' ? row : row.title || row.name; })
-          .filter(Boolean)
-          .sort();
-        return state.genres;
-      })
-      .catch(function () {
-        state.genres = [];
-        return state.genres;
-      });
+  function fillGenreSelect() {
+    var select = byId('kbGenre');
+    if (!select) return;
+    var current = state.catalog.filters.genre;
+    select.innerHTML = '<option value="">Любой жанр</option>' +
+      genreList().map(function (genre) {
+        return '<option value="' + escapeHtml(genre) + '">' + escapeHtml(genre) + '</option>';
+      }).join('');
+    select.value = current;
   }
 
-  function catalogParams() {
+  function catalogParams(genreKey) {
     var filters = state.catalog.filters;
-    return {
+    var params = {
       limit: PAGE,
       page: state.catalog.page,
       types: filters.type || 'anime,anime-serial',
-      anime_genres: filters.genre,
       year: filters.year,
       sort: filters.sort,
+      order: 'desc',
       with_material_data: true
     };
+    if (filters.genre) {
+      var key = genreKey || defaultGenreKey(filters.genre);
+      params[key] = key === 'genres' ? filters.genre.toLowerCase() : filters.genre;
+    }
+    return params;
   }
 
   function renderCatalogGrid() {
@@ -473,8 +558,31 @@
     if (more) {
       more.disabled = state.catalog.loading;
       more.textContent = state.catalog.loading ? 'Загружаем…' : 'Показать ещё';
-      more.parentNode.hidden = state.catalog.done;
+      if (more.parentNode) more.parentNode.hidden = state.catalog.done;
     }
+  }
+
+  /* если жанр не дал результатов в anime_genres — пробуем обычные genres, и наоборот */
+  function fetchPage() {
+    var filters = state.catalog.filters;
+    var key = state.catalog.genreKey || (filters.genre ? defaultGenreKey(filters.genre) : '');
+    return request('/list', catalogParams(key)).then(function (json) {
+      var got = (json && json.results) || [];
+      if (got.length || !filters.genre || state.catalog.page !== 1 || state.catalog.genreKey) {
+        if (filters.genre) state.catalog.genreKey = key;
+        return json;
+      }
+      var alt = otherGenreKey(key);
+      return request('/list', catalogParams(alt))
+        .then(function (second) {
+          state.catalog.genreKey = alt;
+          return second;
+        })
+        .catch(function () {
+          state.catalog.genreKey = key;
+          return json;
+        });
+    });
   }
 
   function loadCatalog(reset) {
@@ -483,11 +591,12 @@
       state.catalog.items = [];
       state.catalog.page = 1;
       state.catalog.done = false;
+      state.catalog.genreKey = '';
     }
     state.catalog.loading = true;
     renderCatalogGrid();
 
-    request('/list', catalogParams())
+    fetchPage()
       .then(function (json) {
         var items = uniqueTitles(json.results);
         var known = {};
@@ -495,6 +604,7 @@
         items.forEach(function (item) {
           if (!known[item.id]) state.catalog.items.push(item);
         });
+        if (collectGenres(items)) fillGenreSelect();
         state.catalog.done = !json.next_page || items.length === 0;
         state.catalog.page += 1;
       })
@@ -529,7 +639,8 @@
       '<select class="f-select" id="kbSort">' +
       '<option value="updated_at">По обновлению</option>' +
       '<option value="created_at">По добавлению</option>' +
-      '<option value="year">По году</option></select></label>' +
+      '<option value="year">По году</option>' +
+      '<option value="shikimori_rating">По оценке Шикимори</option></select></label>' +
       '<button type="button" class="btn btn-ghost" id="kbReset">Сбросить</button>' +
       '</div>' +
       '<div class="grid" id="kbGrid"></div>' +
@@ -539,16 +650,7 @@
     byId('kbYear').value = filters.year;
     byId('kbType').value = filters.type;
     byId('kbSort').value = filters.sort;
-
-    loadGenres().then(function (list) {
-      var select = byId('kbGenre');
-      if (!select) return;
-      select.innerHTML = '<option value="">Любой жанр</option>' +
-        list.map(function (genre) {
-          return '<option value="' + escapeHtml(genre) + '">' + escapeHtml(genre) + '</option>';
-        }).join('');
-      select.value = filters.genre;
-    });
+    fillGenreSelect();
 
     ['kbGenre', 'kbYear', 'kbType', 'kbSort'].forEach(function (id) {
       var node = byId(id);
@@ -604,7 +706,9 @@
       .join('');
 
     var genres = (data.anime_genres || data.genres || [])
-      .map(function (genre) { return '<span class="chip">' + escapeHtml(genre) + '</span>'; })
+      .map(function (genre) {
+        return '<a class="chip" href="#/kodik" data-genre="' + escapeHtml(genre) + '">' + escapeHtml(genre) + '</a>';
+      })
       .join('');
 
     var seasonButtons = seasons.length > 1
@@ -660,42 +764,57 @@
       '</span></div>' +
       seasonButtons + episodeButtons + voiceButtons;
 
+    collectGenres([item]);
     saveWatch(item, state.season, state.episode);
 
-    if (!root.dataset.bound) {
-      root.dataset.bound = '1';
+    if (!root.getAttribute('data-bound')) {
+      root.setAttribute('data-bound', '1');
       root.addEventListener('click', function (event) {
+        var target = event.target;
+        if (!target || !target.closest) return;
         var current = state.items[state.picked];
+
+        /* клик по жанру открывает каталог с этим жанром */
+        var chip = target.closest('[data-genre]');
+        if (chip) {
+          event.preventDefault();
+          state.catalog.filters.genre = chip.getAttribute('data-genre') || '';
+          state.catalog.items = [];
+          state.route = null;
+          location.hash = '#/kodik';
+          return;
+        }
+
         if (!current) return;
 
-        var season = event.target.closest('[data-season]');
+        var season = target.closest('[data-season]');
         if (season) {
-          state.season = Number(season.dataset.season);
+          state.season = Number(season.getAttribute('data-season'));
           state.episode = episodesOf(current, state.season)[0] || 1;
           mount();
           return;
         }
-        var episode = event.target.closest('[data-ep]');
+        var episode = target.closest('[data-ep]');
         if (episode) {
-          state.episode = Number(episode.dataset.ep);
+          state.episode = Number(episode.getAttribute('data-ep'));
           mount();
           return;
         }
-        var voice = event.target.closest('[data-voice]');
+        var voice = target.closest('[data-voice]');
         if (voice) {
-          state.picked = Number(voice.dataset.voice);
+          state.picked = Number(voice.getAttribute('data-voice'));
           var list = seasonsOf(state.items[state.picked]);
           state.season = list.indexOf(state.season) >= 0 ? state.season : (list[0] != null ? list[0] : null);
           mount();
           return;
         }
-        var step = event.target.closest('#kbPrev, #kbNext');
+        var step = target.closest('#kbPrev, #kbNext');
         if (step && !step.disabled) {
           var all = episodesOf(current, state.season);
           var at = all.indexOf(state.episode);
-          var target = step.id === 'kbNext' ? all[at + 1] : all[at - 1];
-          if (target != null) {
-            state.episode = target;
+          var next = step.id === 'kbNext' ? all[at + 1] : all[at - 1];
+          if (next != null) {
+            state.episode = next;
             mount();
           }
         }
@@ -721,7 +840,10 @@
           .then(function (all) {
             var list = (all.results || []).filter(function (row) { return row.link; });
             if (!list.length) list = [found];
-            var at = list.findIndex(function (row) { return row.id === found.id; });
+            var at = -1;
+            list.forEach(function (row, index) {
+              if (at < 0 && row.id === found.id) at = index;
+            });
             state.items = list;
             state.picked = at >= 0 ? at : 0;
           })
@@ -732,6 +854,7 @@
       })
       .then(function () {
         var item = state.items[state.picked];
+        if (!item) throw new Error('not found');
         var seasons = seasonsOf(item);
         var saved = watchOf(item.id);
         state.season = saved && saved.season != null ? saved.season : (seasons[0] != null ? seasons[0] : null);
@@ -772,7 +895,8 @@
     window.scrollTo(0, 0);
 
     if (title) {
-      var id = decodeURIComponent(title[1]);
+      var id;
+      try { id = decodeURIComponent(title[1]); } catch (e) { id = title[1]; }
       if (state.route === 'title:' + id) return;
       state.route = 'title:' + id;
       state.id = id;
@@ -800,6 +924,7 @@
   window.AnimKodikBrowse = {
     open: function (id) { location.hash = '#/kodik/' + encodeURIComponent(id); },
     catalog: function () { location.hash = '#/kodik'; },
+    genres: genreList,
     watched: readWatch
   };
 })();

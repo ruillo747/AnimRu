@@ -88,6 +88,12 @@
     });
   }
 
+  /* url() в style — отдельный контекст: кавычки и скобки из адреса
+     могут разорвать значение, поэтому чистим их явно. */
+  function cssUrl(src) {
+    return 'url("' + String(src == null ? '' : src).replace(/["'()\\\s]/g, encodeURIComponent) + '")';
+  }
+
   function fmtTime(seconds) {
     seconds = Math.max(0, Math.floor(Number(seconds) || 0));
     var h = Math.floor(seconds / 3600);
@@ -95,6 +101,12 @@
     var s = seconds % 60;
     var mm = h ? String(m).padStart(2, '0') : String(m);
     return (h ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+  }
+
+  function percent(done, total) {
+    var t = Number(total) || 0;
+    if (t <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.round((Number(done) || 0) / t * 100)));
   }
 
   function toast(text) {
@@ -173,6 +185,15 @@
 
   function getRandom() {
     return apiFetch('/anime/releases/random', { limit: PAGE_SIZE }).then(normalizeList);
+  }
+
+  /* раньше «есть ещё» угадывалось по items.length === PAGE_SIZE:
+     на ровно кратном числе результатов кнопка вела в пустоту. */
+  function hasMorePages(res, items, page) {
+    var pag = res && res.meta && (res.meta.pagination || res.meta);
+    var totalPages = pag && (pag.total_pages || pag.last_page);
+    if (totalPages) return Number(page) < Number(totalPages);
+    return items.length === PAGE_SIZE;
   }
 
   /* ---------------- карточки ---------------- */
@@ -259,6 +280,10 @@
     node.innerHTML = out.join('');
   }
 
+  function setHtml(node, html) {
+    if (node) node.innerHTML = html;
+  }
+
   /* ---------------- главная ---------------- */
 
   function renderPass() {
@@ -303,7 +328,7 @@
     block.hidden = false;
     rail.innerHTML = items
       .map(function (item) {
-        var pct = Math.min(100, Math.round((item.position / item.duration) * 100));
+        var pct = percent(item.position, item.duration);
         return (
           '<a class="rail-card" href="#/title/' + encodeURIComponent(item.titleId) + '">' +
           '<img src="' + escapeHtml(item.poster || NO_POSTER) + '" alt="" loading="lazy">' +
@@ -335,47 +360,59 @@
         var ongoing = res.items.filter(function (t) {
           return t.is_ongoing;
         });
-        railOngoing.innerHTML = (ongoing.length ? ongoing : res.items)
-          .slice(0, 18)
-          .map(function (t) {
-            return railCardHtml(t);
-          })
-          .join('');
+        setHtml(
+          railOngoing,
+          (ongoing.length ? ongoing : res.items)
+            .slice(0, 18)
+            .map(function (t) {
+              return railCardHtml(t);
+            })
+            .join('')
+        );
       })
       .catch(function () {
-        railOngoing.innerHTML = '<p class="muted small">Не удалось загрузить онгоинги.</p>';
+        setHtml(railOngoing, '<p class="muted small">Не удалось загрузить онгоинги.</p>');
       });
 
     getLatest(18)
       .then(function (items) {
-        railNew.innerHTML = items
-          .map(function (t) {
-            return railCardHtml(t, t.episodes_total ? t.episodes_total + ' эп.' : subLine(t));
-          })
-          .join('');
+        setHtml(
+          railNew,
+          items
+            .map(function (t) {
+              return railCardHtml(t, t.episodes_total ? t.episodes_total + ' эп.' : subLine(t));
+            })
+            .join('')
+        );
       })
       .catch(function () {
-        railNew.innerHTML = '<p class="muted small">Не удалось загрузить новые серии.</p>';
+        setHtml(railNew, '<p class="muted small">Не удалось загрузить новые серии.</p>');
       });
 
     getCatalog({ 'f[sorting]': 'RATING_DESC', page: 1, limit: 30 })
       .then(function (res) {
-        railPopular.innerHTML = res.items
-          .slice(0, 18)
-          .map(function (t) {
-            return railCardHtml(t);
-          })
-          .join('');
-        preview.innerHTML = res.items
-          .slice(0, 10)
-          .map(function (t, i) {
-            return topRowHtml(t, i + 1);
-          })
-          .join('');
+        setHtml(
+          railPopular,
+          res.items
+            .slice(0, 18)
+            .map(function (t) {
+              return railCardHtml(t);
+            })
+            .join('')
+        );
+        setHtml(
+          preview,
+          res.items
+            .slice(0, 10)
+            .map(function (t, i) {
+              return topRowHtml(t, i + 1);
+            })
+            .join('')
+        );
       })
       .catch(function () {
-        railPopular.innerHTML = '<p class="muted small">Не удалось загрузить популярное.</p>';
-        preview.innerHTML = '';
+        setHtml(railPopular, '<p class="muted small">Не удалось загрузить популярное.</p>');
+        setHtml(preview, '');
       });
   }
 
@@ -385,9 +422,9 @@
     var list = $('topList');
     var grid = $('grid');
     var status = $('listStatus');
-    grid.innerHTML = '';
-    list.hidden = false;
-    status.textContent = '';
+    if (grid) grid.innerHTML = '';
+    if (list) list.hidden = false;
+    if (status) status.textContent = '';
     renderSkeleton(list, 10, 'row');
 
     Promise.all([
@@ -397,19 +434,22 @@
       .then(function (parts) {
         var items = parts[0].items.concat(parts[1].items).slice(0, 100);
         if (!items.length) {
-          list.innerHTML = '';
-          status.textContent = 'Топ пока недоступен.';
+          setHtml(list, '');
+          if (status) status.textContent = 'Топ пока недоступен.';
           return;
         }
-        list.innerHTML = items
-          .map(function (t, i) {
-            return topRowHtml(t, i + 1);
-          })
-          .join('');
+        setHtml(
+          list,
+          items
+            .map(function (t, i) {
+              return topRowHtml(t, i + 1);
+            })
+            .join('')
+        );
       })
       .catch(function () {
-        list.innerHTML = '';
-        status.textContent = 'Не удалось загрузить топ.';
+        setHtml(list, '');
+        if (status) status.textContent = 'Не удалось загрузить топ.';
       });
   }
 
@@ -422,15 +462,44 @@
     ['YEAR_ASC', 'Год: старые сначала']
   ];
 
+  function isKnownSorting(value) {
+    return SORTINGS.some(function (s) {
+      return s[0] === value;
+    });
+  }
+
+  /* все значения кодируем: жанры и рейтинги вида "18+" или с пробелами
+     раньше ломали разбор hash и терялись при перезагрузке страницы. */
+  function encodeCsv(list) {
+    return list
+      .map(function (value) {
+        return encodeURIComponent(value);
+      })
+      .join(',');
+  }
+
+  function decodeCsv(value) {
+    return value
+      .split(',')
+      .map(function (part) {
+        try {
+          return decodeURIComponent(part);
+        } catch (e) {
+          return part;
+        }
+      })
+      .filter(Boolean);
+  }
+
   function filtersToHash(f) {
     var parts = [];
     if (f.q) parts.push('q=' + encodeURIComponent(f.q));
-    if (f.sorting && f.sorting !== 'FRESH_AT_DESC') parts.push('sort=' + f.sorting);
-    if (f.yearFrom) parts.push('yf=' + f.yearFrom);
-    if (f.yearTo) parts.push('yt=' + f.yearTo);
-    if (f.genres.length) parts.push('g=' + f.genres.join(','));
-    if (f.types.length) parts.push('t=' + f.types.join(','));
-    if (f.ageRatings.length) parts.push('a=' + f.ageRatings.join(','));
+    if (f.sorting && f.sorting !== 'FRESH_AT_DESC') parts.push('sort=' + encodeURIComponent(f.sorting));
+    if (f.yearFrom) parts.push('yf=' + encodeURIComponent(f.yearFrom));
+    if (f.yearTo) parts.push('yt=' + encodeURIComponent(f.yearTo));
+    if (f.genres.length) parts.push('g=' + encodeCsv(f.genres));
+    if (f.types.length) parts.push('t=' + encodeCsv(f.types));
+    if (f.ageRatings.length) parts.push('a=' + encodeCsv(f.ageRatings));
     return '#/catalog' + (parts.length ? '?' + parts.join('&') : '');
   }
 
@@ -441,14 +510,20 @@
       var i = pair.indexOf('=');
       if (i === -1) return;
       var key = pair.slice(0, i);
-      var value = decodeURIComponent(pair.slice(i + 1));
+      var raw = pair.slice(i + 1);
+      var value;
+      try {
+        value = decodeURIComponent(raw);
+      } catch (e) {
+        value = raw;
+      }
       if (key === 'q') f.q = value;
-      if (key === 'sort') f.sorting = value;
-      if (key === 'yf') f.yearFrom = value;
-      if (key === 'yt') f.yearTo = value;
-      if (key === 'g') f.genres = value.split(',').filter(Boolean);
-      if (key === 't') f.types = value.split(',').filter(Boolean);
-      if (key === 'a') f.ageRatings = value.split(',').filter(Boolean);
+      if (key === 'sort' && isKnownSorting(value)) f.sorting = value;
+      if (key === 'yf') f.yearFrom = /^\d{4}$/.test(value) ? value : '';
+      if (key === 'yt') f.yearTo = /^\d{4}$/.test(value) ? value : '';
+      if (key === 'g') f.genres = decodeCsv(raw);
+      if (key === 't') f.types = decodeCsv(raw);
+      if (key === 'a') f.ageRatings = decodeCsv(raw);
     });
     return f;
   }
@@ -615,8 +690,9 @@
     var grid = $('grid');
     var status = $('listStatus');
     var list = $('topList');
+    var moreWrap = $('loadMoreWrap');
     if (list) list.hidden = true;
-    status.textContent = '';
+    if (status) status.textContent = '';
     if (!append) renderSkeleton(grid, 12);
 
     var request;
@@ -629,19 +705,22 @@
       .then(function (res) {
         var items = res.items;
         var html = items.map(cardHtml).join('');
-        if (append) grid.insertAdjacentHTML('beforeend', html);
-        else grid.innerHTML = html;
+        if (grid) {
+          if (append) grid.insertAdjacentHTML('beforeend', html);
+          else grid.innerHTML = html;
+        }
 
-        if (!items.length && !append) {
+        if (!items.length && !append && status) {
           status.textContent = 'Ничего не нашлось. Попробуйте ослабить фильтры.';
         }
-        state.hasMore = tab === 'catalog' && items.length === PAGE_SIZE;
-        $('loadMoreWrap').hidden = !state.hasMore;
+        state.hasMore = tab === 'catalog' && hasMorePages(res, items, page);
+        if (moreWrap) moreWrap.hidden = !state.hasMore;
       })
       .catch(function () {
-        if (!append) grid.innerHTML = '';
-        status.textContent = 'Не удалось загрузить список. Проверьте соединение.';
-        $('loadMoreWrap').hidden = true;
+        if (!append && grid) grid.innerHTML = '';
+        if (status) status.textContent = 'Не удалось загрузить список. Проверьте соединение.';
+        state.hasMore = false;
+        if (moreWrap) moreWrap.hidden = true;
       });
   }
 
@@ -728,25 +807,34 @@
     return String(titleId) + ':' + String(episodeId);
   }
 
+  /* раньше ключ серии собирался в четырёх местах по-разному */
+  function epKey(titleId, ep) {
+    return watchKey(titleId, ep && ep.id != null ? ep.id : ep && ep.ordinal);
+  }
+
+  function episodeNumber(ep, index) {
+    return ep && ep.ordinal != null ? ep.ordinal : index + 1;
+  }
+
   function episodeProgress(ep) {
     if (!state.title || !ep) return null;
     var map = getWatch();
-    return map[watchKey(state.title.id, ep.id != null ? ep.id : ep.ordinal)] || null;
+    return map[epKey(state.title.id, ep)] || null;
   }
 
   function renderEpisodes() {
     var box = $('episodes');
     var count = $('epCount');
     if (!box) return;
-    count.textContent = state.episodes.length
-      ? state.episodes.length + ' всего'
-      : '';
+    if (count) {
+      count.textContent = state.episodes.length ? state.episodes.length + ' всего' : '';
+    }
 
     box.innerHTML = state.episodes
       .map(function (ep, i) {
         var progress = episodeProgress(ep);
         var seen = progress && progress.duration && progress.position / progress.duration > 0.9;
-        var num = ep.ordinal != null ? ep.ordinal : i + 1;
+        var num = episodeNumber(ep, i);
         return (
           '<button class="ep-btn' + (i === state.epIndex ? ' active' : '') + '" data-i="' + i + '">' +
           '<span class="ep-num">' + escapeHtml(num) + '</span>' +
@@ -792,13 +880,19 @@
     });
   }
 
+  /* подпись показывала «Авто», хотя играло конкретное качество */
   function updateQualityLabel() {
     var btn = $('pQualityBtn');
     if (!btn) return;
     var found = QUALITIES.filter(function (q) {
       return q[0] === state.quality;
     })[0];
-    btn.textContent = found ? found[1] : 'Авто';
+    if (found) {
+      btn.textContent = found[1];
+      return;
+    }
+    var sources = episodeSources(state.episodes[state.epIndex]);
+    btn.textContent = sources.length ? sources[0].label : '—';
   }
 
   function pickQuality(ep) {
@@ -881,10 +975,13 @@
     renderQualityMenu();
     renderEpisodes();
 
-    var num = ep.ordinal != null ? ep.ordinal : index + 1;
-    $('epLabel').textContent = 'Серия ' + num + (ep.name ? ' · ' + ep.name : '');
-    $('pPrevEp').disabled = index === 0;
-    $('pNextEp').disabled = index === state.episodes.length - 1;
+    var num = episodeNumber(ep, index);
+    var label = $('epLabel');
+    if (label) label.textContent = 'Серия ' + num + (ep.name ? ' · ' + ep.name : '');
+    var prevBtn = $('pPrevEp');
+    var nextBtn = $('pNextEp');
+    if (prevBtn) prevBtn.disabled = index === 0;
+    if (nextBtn) nextBtn.disabled = index === state.episodes.length - 1;
 
     var saved = episodeProgress(ep);
     var startAt = saved && saved.duration && saved.position / saved.duration < 0.95 ? saved.position : 0;
@@ -903,11 +1000,17 @@
           : [];
 
         document.title = titleName(t) + ' — AnimRu';
-        $('tHeroBg').style.backgroundImage = 'url("' + posterUrl(t) + '")';
-        $('tPoster').src = posterUrl(t);
-        $('tPoster').alt = titleName(t);
-        $('tName').textContent = titleName(t);
-        $('tNameEn').textContent = (t.name && t.name.english) || '';
+        var heroBg = $('tHeroBg');
+        if (heroBg) heroBg.style.backgroundImage = cssUrl(posterUrl(t));
+        var poster = $('tPoster');
+        if (poster) {
+          poster.src = posterUrl(t);
+          poster.alt = titleName(t);
+        }
+        var nameNode = $('tName');
+        if (nameNode) nameNode.textContent = titleName(t);
+        var nameEn = $('tNameEn');
+        if (nameEn) nameEn.textContent = (t.name && t.name.english) || '';
 
         var meta = [];
         if (t.year) meta.push('<span>' + escapeHtml(t.year) + '</span>');
@@ -916,20 +1019,25 @@
         if (t.age_rating && t.age_rating.label) meta.push('<span>' + escapeHtml(t.age_rating.label) + '</span>');
         if (t.episodes_total) meta.push('<span>' + escapeHtml(t.episodes_total) + ' эп.</span>');
         if (t.is_ongoing) meta.push('<span><strong>Онгоинг</strong></span>');
-        $('tMeta').innerHTML = meta.join('');
+        setHtml($('tMeta'), meta.join(''));
 
-        $('tGenres').innerHTML = (t.genres || [])
-          .map(function (g) {
-            return '<span class="chip">' + escapeHtml(g.name) + '</span>';
-          })
-          .join('');
-        $('tDesc').textContent = t.description || '';
+        setHtml(
+          $('tGenres'),
+          (t.genres || [])
+            .map(function (g) {
+              return '<span class="chip">' + escapeHtml(g.name) + '</span>';
+            })
+            .join('')
+        );
+        var desc = $('tDesc');
+        if (desc) desc.textContent = t.description || '';
 
         if (G) G.onTitleOpen(t.id);
 
         if (!state.episodes.length) {
-          $('epLabel').textContent = 'Серий пока нет';
-          $('episodes').innerHTML = '<p class="muted small">Серии ещё не выложены.</p>';
+          var emptyLabel = $('epLabel');
+          if (emptyLabel) emptyLabel.textContent = 'Серий пока нет';
+          setHtml($('episodes'), '<p class="muted small">Серии ещё не выложены.</p>');
           return;
         }
 
@@ -937,7 +1045,7 @@
         var startIndex = 0;
         var newest = 0;
         state.episodes.forEach(function (ep, i) {
-          var rec = map[watchKey(t.id, ep.id != null ? ep.id : ep.ordinal)];
+          var rec = map[epKey(t.id, ep)];
           if (rec && (rec.at || 0) > newest) {
             newest = rec.at || 0;
             startIndex = i;
@@ -1000,6 +1108,15 @@
     syncVolumeUi();
   }
 
+  function toggleMute() {
+    var video = $('player');
+    if (!video) return;
+    video.muted = !video.muted;
+    prefs.muted = video.muted;
+    savePrefs();
+    syncVolumeUi();
+  }
+
   function syncVolumeUi() {
     var video = $('player');
     var slider = $('pVol');
@@ -1034,11 +1151,11 @@
     if (!video || !ep || !state.title || !isFinite(video.duration) || video.duration <= 0) return;
     if (!force && video.paused) return;
     var map = getWatch();
-    map[watchKey(state.title.id, ep.id != null ? ep.id : ep.ordinal)] = {
+    map[epKey(state.title.id, ep)] = {
       titleId: state.title.id,
       name: titleName(state.title),
       poster: posterUrl(state.title),
-      episode: ep.ordinal != null ? ep.ordinal : state.epIndex + 1,
+      episode: episodeNumber(ep, state.epIndex),
       position: Math.floor(video.currentTime),
       duration: Math.floor(video.duration),
       at: Date.now()
@@ -1112,12 +1229,7 @@
     $('pNextEp').addEventListener('click', function () {
       selectEpisode(state.epIndex + 1, true);
     });
-    $('pMute').addEventListener('click', function () {
-      video.muted = !video.muted;
-      prefs.muted = video.muted;
-      savePrefs();
-      syncVolumeUi();
-    });
+    $('pMute').addEventListener('click', toggleMute);
     $('pVol').addEventListener('input', function (e) {
       setVolume(Number(e.target.value));
     });
@@ -1188,13 +1300,15 @@
 
     video.addEventListener('ended', function () {
       persistProgress(true);
-      if ($('autoNext').checked && state.epIndex < state.episodes.length - 1) {
+      var autoNext = $('autoNext');
+      if (autoNext && autoNext.checked && state.epIndex < state.episodes.length - 1) {
         selectEpisode(state.epIndex + 1, true);
       }
     });
 
     root.addEventListener('mousemove', scheduleHideUi);
     root.addEventListener('keydown', function (e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       var key = e.key.toLowerCase();
       if (key === ' ' || key === 'k') {
         e.preventDefault();
@@ -1212,20 +1326,24 @@
       } else if (key === 'f') {
         toggleFullscreen();
       } else if (key === 'm') {
-        video.muted = !video.muted;
-        syncVolumeUi();
+        /* раньше горячая клавиша не сохраняла настройку */
+        toggleMute();
       } else if (key === 'n') {
         selectEpisode(state.epIndex + 1, true);
-      } else if (key === 'p') {
+      } else if (key === 'b') {
+        /* раньше была клавиша p, которая совпадала с переходом в профиль */
         selectEpisode(state.epIndex - 1, true);
       }
     });
 
-    $('autoNext').checked = prefs.autoNext;
-    $('autoNext').addEventListener('change', function (e) {
-      prefs.autoNext = e.target.checked;
-      savePrefs();
-    });
+    var autoNextBox = $('autoNext');
+    if (autoNextBox) {
+      autoNextBox.checked = prefs.autoNext;
+      autoNextBox.addEventListener('change', function (e) {
+        prefs.autoNext = e.target.checked;
+        savePrefs();
+      });
+    }
 
     clearInterval(state.saveTimer);
     state.saveTimer = setInterval(function () {
@@ -1255,6 +1373,7 @@
     var card = $('pfCard');
     var avatar = $('pfAvatar');
     var glyph = $('pfAvatarGlyph');
+    if (!card || !avatar || !glyph) return;
     var titleItem = G.equipped('title');
     var frameItem = G.equipped('frame');
     var avatarItem = G.equipped('avatar');
@@ -1268,48 +1387,63 @@
     $('pfXp').textContent = s.into + ' / ' + s.need + ' XP';
     $('pfBar').style.width = s.pct + '%';
 
-    $('pfStats').innerHTML =
+    setHtml(
+      $('pfStats'),
       '<div class="pf-stat"><b>' + s.stats.episodes + '</b><span>серий просмотрено</span></div>' +
-      '<div class="pf-stat"><b>' + s.stats.minutes + '</b><span>минут в плеере</span></div>' +
-      '<div class="pf-stat"><b>' + s.stats.titles + '</b><span>тайтлов открыто</span></div>' +
-      '<div class="pf-stat"><b>' + s.xp + '</b><span>всего XP</span></div>';
+        '<div class="pf-stat"><b>' + s.stats.minutes + '</b><span>минут в плеере</span></div>' +
+        '<div class="pf-stat"><b>' + s.stats.titles + '</b><span>тайтлов открыто</span></div>' +
+        '<div class="pf-stat"><b>' + s.xp + '</b><span>всего XP</span></div>'
+    );
 
-    $('questReset').textContent = 'Ежедневные обновляются в полночь, недельные — в понедельник';
-    $('questList').innerHTML = s.quests
-      .map(function (q) {
-        var pct = Math.round((q.progress / q.target) * 100);
-        return (
-          '<div class="quest' + (q.done ? ' done' : '') + '">' +
-          '<div class="quest-head"><span class="quest-name">' + escapeHtml(q.name) + '</span>' +
-          '<span class="quest-xp">' + (q.scope === 'daily' ? 'день' : 'неделя') + ' · ' + q.xp + ' XP</span></div>' +
-          '<div class="progress-line"><i style="width:' + pct + '%"></i></div>' +
-          '<p class="quest-sub">' + (q.done ? 'Выполнено' : q.progress + ' / ' + q.target + ' ' + escapeHtml(q.unit)) + '</p>' +
-          '</div>'
-        );
-      })
-      .join('');
+    var questReset = $('questReset');
+    if (questReset) {
+      questReset.textContent = 'Ежедневные обновляются в полночь, недельные — в понедельник';
+    }
+    setHtml(
+      $('questList'),
+      s.quests
+        .map(function (q) {
+          var pct = percent(q.progress, q.target);
+          return (
+            '<div class="quest' + (q.done ? ' done' : '') + '">' +
+            '<div class="quest-head"><span class="quest-name">' + escapeHtml(q.name) + '</span>' +
+            '<span class="quest-xp">' + (q.scope === 'daily' ? 'день' : 'неделя') + ' · ' + q.xp + ' XP</span></div>' +
+            '<div class="progress-line"><i style="width:' + pct + '%"></i></div>' +
+            '<p class="quest-sub">' + (q.done ? 'Выполнено' : q.progress + ' / ' + q.target + ' ' + escapeHtml(q.unit)) + '</p>' +
+            '</div>'
+          );
+        })
+        .join('')
+    );
 
     var rewards = G.rewards();
-    $('rewardCount').textContent = s.stats.unlocked + ' из ' + s.stats.total + ' предметов';
-    $('rewardGrid').innerHTML = rewards
-      .map(function (r) {
-        var cls = 'reward' + (r.unlocked ? '' : ' locked') + (r.equipped ? ' equipped' : '');
-        return (
-          '<button class="' + cls + '" data-id="' + r.id + '"' + (r.unlocked ? '' : ' disabled') + '>' +
-          '<span class="reward-lvl">Уровень ' + r.level + '</span>' +
-          '<span class="reward-name">' + escapeHtml(r.name) + '</span>' +
-          '<span class="reward-kind">' + escapeHtml(G.KIND_NAME[r.kind]) + ' · ' +
-          '<span class="reward-rar rar-' + r.rarity + '">' + escapeHtml(G.RARITY_NAME[r.rarity]) + '</span></span>' +
-          '</button>'
-        );
-      })
-      .join('');
+    var rewardCount = $('rewardCount');
+    if (rewardCount) rewardCount.textContent = s.stats.unlocked + ' из ' + s.stats.total + ' предметов';
+    var rewardGrid = $('rewardGrid');
+    setHtml(
+      rewardGrid,
+      rewards
+        .map(function (r) {
+          var cls = 'reward' + (r.unlocked ? '' : ' locked') + (r.equipped ? ' equipped' : '');
+          return (
+            '<button class="' + cls + '" data-id="' + r.id + '"' + (r.unlocked ? '' : ' disabled') + '>' +
+            '<span class="reward-lvl">Уровень ' + r.level + '</span>' +
+            '<span class="reward-name">' + escapeHtml(r.name) + '</span>' +
+            '<span class="reward-kind">' + escapeHtml(G.KIND_NAME[r.kind]) + ' · ' +
+            '<span class="reward-rar rar-' + r.rarity + '">' + escapeHtml(G.RARITY_NAME[r.rarity]) + '</span></span>' +
+            '</button>'
+          );
+        })
+        .join('')
+    );
 
-    $('rewardGrid').querySelectorAll('.reward').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        if (G.equip(btn.dataset.id)) renderProfile();
+    if (rewardGrid) {
+      rewardGrid.querySelectorAll('.reward').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (G.equip(btn.dataset.id)) renderProfile();
+        });
       });
-    });
+    }
   }
 
   function initProfileActions() {
@@ -1356,7 +1490,8 @@
   }
 
   function showError(text) {
-    $('errText').textContent = text;
+    var node = $('errText');
+    if (node) node.textContent = text;
     showView('view-error');
   }
 
@@ -1381,6 +1516,21 @@
     if (nav) nav.classList.remove('open');
   }
 
+  function setCatalogLayout(noFilters) {
+    var layout = document.querySelector('.catalog-layout');
+    if (layout) layout.classList.toggle('no-filters', !!noFilters);
+  }
+
+  function setText(id, text) {
+    var node = $(id);
+    if (node) node.textContent = text;
+  }
+
+  function setHidden(id, hidden) {
+    var node = $(id);
+    if (node) node.hidden = hidden;
+  }
+
   function router() {
     var hash = location.hash || '#/';
     var body = hash.slice(2);
@@ -1388,7 +1538,9 @@
     var path = queryAt === -1 ? body : body.slice(0, queryAt);
     var query = queryAt === -1 ? '' : body.slice(queryAt + 1);
 
-    if (!path.indexOf('title/')) {
+    if (path.indexOf('title/') === 0) {
+      /* раньше при переходе с тайтла на тайтл старый поток продолжал играть */
+      stopPlayback();
       state.tab = 'title';
       setActiveNav('');
       loadTitle(path.slice('title/'.length));
@@ -1410,12 +1562,12 @@
       state.tab = 'top';
       setActiveNav('top');
       showView('view-list');
-      $('listTitle').textContent = 'Топ-100 AnimRu';
-      $('filterToggle').hidden = true;
-      $('filterBar').hidden = true;
-      $('activeFilters').hidden = true;
-      $('loadMoreWrap').hidden = true;
-      document.querySelector('.catalog-layout').classList.add('no-filters');
+      setText('listTitle', 'Топ-100 AnimRu');
+      setHidden('filterToggle', true);
+      setHidden('filterBar', true);
+      setHidden('activeFilters', true);
+      setHidden('loadMoreWrap', true);
+      setCatalogLayout(true);
       loadTop();
       return;
     }
@@ -1424,12 +1576,13 @@
       state.tab = 'random';
       setActiveNav('random');
       showView('view-list');
-      $('listTitle').textContent = 'Случайная подборка';
-      $('filterToggle').hidden = true;
-      $('filterBar').hidden = true;
-      $('activeFilters').hidden = true;
-      $('topList').hidden = true;
-      document.querySelector('.catalog-layout').classList.add('no-filters');
+      setText('listTitle', 'Случайная подборка');
+      setHidden('filterToggle', true);
+      setHidden('filterBar', true);
+      setHidden('activeFilters', true);
+      setHidden('topList', true);
+      setHidden('loadMoreWrap', true);
+      setCatalogLayout(true);
       loadList('random', 1, false);
       return;
     }
@@ -1440,17 +1593,17 @@
       state.filters = hashToFilters(query);
       setActiveNav('catalog');
       showView('view-list');
-      $('listTitle').textContent = state.filters.q ? 'Поиск: ' + state.filters.q : 'Каталог';
-      $('topList').hidden = true;
-      $('filterToggle').hidden = false;
-      document.querySelector('.catalog-layout').classList.remove('no-filters');
+      setText('listTitle', state.filters.q ? 'Поиск: ' + state.filters.q : 'Каталог');
+      setHidden('topList', true);
+      setHidden('filterToggle', false);
+      setCatalogLayout(false);
       var searchInput = $('searchInput');
       if (searchInput && state.filters.q) searchInput.value = state.filters.q;
 
       loadRefs().then(function () {
         renderFilters();
         renderActiveFilters();
-        $('filterBar').hidden = window.innerWidth <= 900 ? true : false;
+        setHidden('filterBar', window.innerWidth <= 900);
       });
       loadList('catalog', 1, false);
       return;
@@ -1478,6 +1631,7 @@
     if (toggle) {
       toggle.addEventListener('click', function () {
         var bar = $('filterBar');
+        if (!bar) return;
         bar.hidden = !bar.hidden;
         toggle.setAttribute('aria-expanded', String(!bar.hidden));
       });
@@ -1494,6 +1648,7 @@
         else if (kind === 'yearTo') state.filters.yearTo = '';
         else {
           var list = state.filters[kind];
+          if (!Array.isArray(list)) return;
           var i = list.indexOf(btn.dataset.val);
           if (i !== -1) list.splice(i, 1);
         }
@@ -1504,6 +1659,7 @@
     var loadMore = $('loadMore');
     if (loadMore) {
       loadMore.addEventListener('click', function () {
+        if (!state.hasMore) return;
         state.page += 1;
         loadList('catalog', state.page, true);
       });
@@ -1526,8 +1682,12 @@
       });
     }
 
-    window.addEventListener('beforeunload', function () {
+    /* beforeunload не срабатывает на мобильных — дублируем надёжными событиями */
+    window.addEventListener('pagehide', function () {
       persistProgress(true);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') persistProgress(true);
     });
   }
 

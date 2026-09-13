@@ -94,38 +94,50 @@
     var style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = CSS;
-    document.head.appendChild(style);
+    (document.head || document.documentElement).appendChild(style);
   }
 
   /* ---------------- чистка текста от ИИ-штампов ---------------- */
 
   var PHRASES = [
-    [/\bпогрузитесь в мир\b/gi, 'смотрите'],
-    [/\bоткройте для себя\b/gi, 'смотрите'],
-    [/\bв современном мире\b/gi, ''],
-    [/\bбесшовн(ый|ая|ое|ые)\b/gi, 'простой'],
-    [/\bреволюционн(ый|ая|ое|ые)\b/gi, ''],
-    [/\s*(🚀|✨|🔥)\s*/g, ' '],
-    [/\s+—\s*$/g, ''],
+    [/\u0431погрузитесь в мир/gi, 'смотрите'],
+    [/погрузитесь в мир/gi, 'смотрите'],
+    [/откройте для себя/gi, 'смотрите'],
+    [/в современном мире/gi, ''],
+    [/бесшовн(ый|ая|ое|ые)/gi, 'простой'],
+    [/революционн(ый|ая|ое|ые)/gi, ''],
+    [/\s*(\uD83D\uDE80|\u2728|\uD83D\uDD25)\s*/g, ' '],
+    [/\s+\u2014\s*$/g, ''],
     [/[ \t]{2,}/g, ' ']
   ];
 
-  var TEXT_HOSTS = ['tDesc', 'kbStatus', 'listStatus', 'topStatus'];
+  /* только те узлы, где лежит описательный текст */
+  var TEXT_HOSTS = ['tDesc', 'kbStatus', 'topStatus'];
+  var SKIP_TAGS = { SELECT: 1, INPUT: 1, TEXTAREA: 1, OPTION: 1, BUTTON: 1, SCRIPT: 1, STYLE: 1, VIDEO: 1, IMG: 1 };
 
   function cleanText(value) {
     var next = value;
     PHRASES.forEach(function (pair) {
       next = next.replace(pair[0], pair[1]);
     });
-    return next.replace(/\n{3,}/g, '\n\n').trim();
+    return next.replace(/\n{3,}/g, '\n\n');
   }
 
+  /* правим только текстовые узлы: теги и ссылки внутри описания остаются целыми */
   function cleanNode(node) {
-    if (!node) return;
-    var raw = node.textContent || '';
-    if (!raw) return;
-    var next = cleanText(raw);
-    if (next && next !== raw) node.textContent = next;
+    if (!node || node.nodeType !== 1) return;
+    if (SKIP_TAGS[node.tagName]) return;
+    if (!node.firstChild) return;
+    var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+    var current;
+    while ((current = walker.nextNode())) {
+      var parent = current.parentNode;
+      if (parent && parent.nodeType === 1 && SKIP_TAGS[parent.tagName]) continue;
+      var raw = current.nodeValue || '';
+      if (!raw.trim()) continue;
+      var next = cleanText(raw);
+      if (next !== raw) current.nodeValue = next;
+    }
   }
 
   function textPass() {
@@ -158,13 +170,24 @@
     labelIconButtons();
     textPass();
 
+    if (!document.body || !window.MutationObserver) return;
+
     var timer = null;
+    var busy = false;
     var observer = new MutationObserver(function () {
+      if (busy) return;
       clearTimeout(timer);
       timer = setTimeout(function () {
-        labelIconButtons();
-        textPass();
-      }, 120);
+        /* свои же правки не должны будить наблюдателя снова */
+        busy = true;
+        try {
+          labelIconButtons();
+          textPass();
+        } finally {
+          observer.takeRecords();
+          busy = false;
+        }
+      }, 150);
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
