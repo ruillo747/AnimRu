@@ -35,7 +35,13 @@
     var tag = document.createElement('style');
     tag.id = 'offline-css';
     tag.textContent = CSS;
-    document.head.appendChild(tag);
+    (document.head || document.documentElement).appendChild(tag);
+  }
+
+  function escapeHtml(text) {
+    return String(text == null ? '' : text).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
   }
 
   function readIndex() {
@@ -67,14 +73,19 @@
   }
 
   function titleId() {
-    var match = /^#\/title\/([^?]+)/.exec(location.hash || '');
-    return match ? decodeURIComponent(match[1]) : '';
+    var match = /^#\/title\/([^/?#]+)/.exec(location.hash || '');
+    if (!match) return '';
+    try {
+      return decodeURIComponent(match[1]);
+    } catch (err) {
+      return match[1];
+    }
   }
 
   function episodeIndex() {
     var active = document.querySelector('#episodes .ep-btn.active');
     if (!active) return 0;
-    var i = parseInt(active.dataset.i, 10);
+    var i = parseInt(active.getAttribute('data-i'), 10);
     return isNaN(i) ? 0 : i;
   }
 
@@ -124,16 +135,17 @@
     }
   }
 
-  /* Если пришёл master-плейлист, берём первый вариант потока. */
-  function resolvePlaylist(url) {
+  /* Если пришёл master-плейлист, берём первый вариант потока. Глубина ограничена, чтобы круговая ссылка не зациклила загрузку. */
+  function resolvePlaylist(url, depth) {
+    depth = depth || 0;
     return fetchText(url).then(function (text) {
-      if (text.indexOf('#EXT-X-STREAM-INF') === -1) return { url: url, text: text };
+      if (text.indexOf('#EXT-X-STREAM-INF') === -1 || depth >= 4) return { url: url, text: text };
       var lines = text.split('\n');
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim();
         if (!line || line.charAt(0) === '#') continue;
         var next = absolute(line, url);
-        if (next) return resolvePlaylist(next);
+        if (next && next !== url) return resolvePlaylist(next, depth + 1);
       }
       return { url: url, text: text };
     });
@@ -141,27 +153,28 @@
 
   function segmentsOf(text, base) {
     var out = [];
+    var seen = {};
     text.split('\n').forEach(function (raw) {
       var line = raw.trim();
       if (!line) return;
+      var target = '';
       if (line.charAt(0) === '#') {
         var keyMatch = /URI="([^"]+)"/.exec(line);
-        if (keyMatch) {
-          var keyUrl = absolute(keyMatch[1], base);
-          if (keyUrl) out.push(keyUrl);
-        }
-        return;
+        if (keyMatch) target = absolute(keyMatch[1], base);
+      } else {
+        target = absolute(line, base);
       }
-      var seg = absolute(line, base);
-      if (seg) out.push(seg);
+      if (!target || seen[target]) return;
+      seen[target] = true;
+      out.push(target);
     });
     return out;
   }
 
   function cacheUrl(cache, url) {
     return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function (res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
       if (res.type === 'opaque') throw new Error('CORS');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       return cache.put(url, res);
     });
   }
@@ -183,7 +196,7 @@
         })
         .then(function () {
           done++;
-          onProgress(done, urls.length);
+          if (onProgress) onProgress(done, urls.length);
           return worker();
         });
     }
@@ -213,6 +226,8 @@
       return 'сервер видео не отдал файл приложению';
     }
     if (/QuotaExceeded|quota/i.test(text)) return 'не хватает места в хранилище';
+    if (text === 'no source') return 'у серии нет доступного потока';
+    if (text === 'empty playlist') return 'плейлист оказался пустым';
     return text;
   }
 
@@ -233,11 +248,11 @@
     var index = episodeIndex();
     var button = document.getElementById('dlBtn');
     var state = document.getElementById('dlState');
-    if (!button || !state) return;
+    if (!button) return;
 
     var problem = storageProblem();
     if (problem) {
-      state.textContent = 'Скачивание недоступно: ' + problem;
+      if (state) state.textContent = 'Скачивание недоступно: ' + problem;
       notify('Скачивание недоступно: ' + problem);
       return;
     }
@@ -245,13 +260,14 @@
     busy = true;
     button.disabled = true;
     button.textContent = 'Готовим…';
-    state.textContent = '';
+    if (state) state.textContent = '';
 
     var cacheRef = null;
     var release = null;
     var episode = null;
     var source = null;
     var urls = [];
+    var stored = [];
 
     caches
       .open(CACHE)
@@ -269,7 +285,8 @@
         var extras = [API + '/anime/releases/' + encodeURIComponent(id)];
         var poster = posterOf(release);
         if (poster) extras.push(poster);
-        return cacheAll(cacheRef, extras, function () {})
+        stored = stored.concat(extras);
+        return cacheAll(cacheRef, extras)
           .then(function (result) {
             return requireMostly(result, 'Описание тайтла');
           })
@@ -282,7 +299,8 @@
         if (!urls.length) throw new Error('empty playlist');
         var meta = [source.url];
         if (playlist.url !== source.url) meta.push(playlist.url);
-        return cacheAll(cacheRef, meta, function () {})
+        stored = stored.concat(meta, urls);
+        return cacheAll(cacheRef, meta)
           .then(function (result) {
             return requireMostly(result, 'Плейлист');
           })
@@ -306,7 +324,9 @@
           episode: (episode && (episode.ordinal || episode.sort_order)) || index + 1,
           episodeName: (episode && episode.name) || '',
           quality: source.label,
-          parts: urls.length + 2,
+          parts: stored.length,
+          /* список файлов нужен, чтобы при удалении чистить кеш, а не только запись */
+          urls: stored,
           at: Date.now()
         };
         writeIndex(data);
@@ -315,8 +335,10 @@
       })
       .catch(function (err) {
         var reason = reasonOf(err);
-        state.textContent = 'Не удалось скачать: ' + reason;
+        if (state) state.textContent = 'Не удалось скачать: ' + reason;
         notify('Не удалось скачать серию — ' + reason);
+        /* недокачанные файлы не должны занимать место */
+        if (cacheRef && stored.length) dropUrls(cacheRef, stored);
       })
       .then(function () {
         busy = false;
@@ -324,13 +346,41 @@
       });
   }
 
+  function dropUrls(cache, urls) {
+    var i = 0;
+    function step() {
+      if (i >= urls.length) return Promise.resolve();
+      var url = urls[i++];
+      return cache
+        .delete(url)
+        .catch(function () { return null; })
+        .then(step);
+    }
+    return step();
+  }
+
   function removeEntry(key) {
     var data = readIndex();
+    var item = data[key];
+    if (!item) return;
     delete data[key];
     writeIndex(data);
     renderHome();
     syncButton();
-    notify('Скачанная серия удалена из списка');
+    notify('Скачанная серия удалена');
+
+    /* чистим и само видео: иначе сегменты остаются в кеше навсегда */
+    if (!window.caches || typeof caches.open !== 'function') return;
+    var list = Array.isArray(item.urls) ? item.urls : null;
+    caches
+      .open(CACHE)
+      .then(function (cache) {
+        if (list) return dropUrls(cache, list);
+        /* старые записи без списка файлов: если скачанного больше нет, кеш можно снести целиком */
+        if (!Object.keys(readIndex()).length) return caches.delete(CACHE);
+        return null;
+      })
+      .catch(function () { return null; });
   }
 
   function ensureUi() {
@@ -343,8 +393,13 @@
       '<button class="dl-btn" id="dlBtn" type="button">↓ Скачать серию</button>' +
       '<span class="dl-state" id="dlState"></span>';
     bar.appendChild(box);
-    document.getElementById('dlBtn').addEventListener('click', function () {
-      var key = keyOf(titleId(), episodeIndex());
+    var button = document.getElementById('dlBtn');
+    if (!button) return;
+    button.addEventListener('click', function () {
+      if (busy) return;
+      var id = titleId();
+      if (!id) return;
+      var key = keyOf(id, episodeIndex());
       if (readIndex()[key]) removeEntry(key);
       else download();
     });
@@ -354,28 +409,49 @@
     var button = document.getElementById('dlBtn');
     var state = document.getElementById('dlState');
     if (!button || busy) return;
-    var entry = readIndex()[keyOf(titleId(), episodeIndex())];
+    var id = titleId();
+    var entry = id ? readIndex()[keyOf(id, episodeIndex())] : null;
     button.disabled = false;
     if (entry) {
       button.textContent = '✓ Скачано — удалить';
       button.classList.add('done');
-      state.textContent = 'Доступно офлайн · ' + (entry.quality || '');
+      if (state) state.textContent = 'Доступно офлайн' + (entry.quality ? ' · ' + entry.quality : '');
     } else {
       button.textContent = '↓ Скачать серию';
       button.classList.remove('done');
-      state.textContent = 'Серия сохранится в память браузера';
+      if (state) state.textContent = 'Серия сохранится в память браузера';
     }
+  }
+
+  function plural(count) {
+    var tail = count % 100;
+    if (tail > 10 && tail < 20) return 'серий';
+    var last = count % 10;
+    if (last === 1) return 'серия';
+    if (last >= 2 && last <= 4) return 'серии';
+    return 'серий';
   }
 
   function renderHome() {
     var home = document.getElementById('view-home');
     if (!home) return;
     var block = document.getElementById('offlineBlock');
-    var entries = Object.keys(readIndex()).map(function (key) {
-      var item = readIndex()[key];
-      item.key = key;
-      return item;
-    });
+    var index = readIndex();
+    var entries = Object.keys(index)
+      .map(function (key) {
+        var item = index[key];
+        if (!item || typeof item !== 'object') return null;
+        return {
+          key: key,
+          id: item.id,
+          name: item.name,
+          poster: item.poster,
+          episode: item.episode,
+          quality: item.quality,
+          at: item.at
+        };
+      })
+      .filter(Boolean);
     entries.sort(function (a, b) {
       return (b.at || 0) - (a.at || 0);
     });
@@ -397,28 +473,32 @@
       if (first) home.insertBefore(block, first);
       else home.appendChild(block);
       block.addEventListener('click', function (event) {
-        var button = event.target.closest('.dl-del');
+        var target = event.target;
+        var button = target && target.closest ? target.closest('.dl-del') : null;
         if (!button) return;
-        removeEntry(button.dataset.key);
+        removeEntry(button.getAttribute('data-key'));
       });
     }
 
     block.hidden = false;
-    document.getElementById('offlineCount').textContent = entries.length + ' серий';
-    document.getElementById('offlineRail').innerHTML = entries
+    var count = document.getElementById('offlineCount');
+    var rail = document.getElementById('offlineRail');
+    if (count) count.textContent = entries.length + ' ' + plural(entries.length);
+    if (!rail) return;
+    rail.innerHTML = entries
       .map(function (item) {
         return (
-          '<div class="dl-item"><img loading="lazy" src="' +
-          (item.poster || '') +
-          '" alt=""><div class="dl-item-main"><div class="dl-item-name">' +
-          String(item.name).replace(/[<>]/g, '') +
+          '<div class="dl-item">' +
+          (item.poster ? '<img loading="lazy" src="' + escapeHtml(item.poster) + '" alt="">' : '<img alt="">') +
+          '<div class="dl-item-main"><div class="dl-item-name">' +
+          escapeHtml(item.name || 'Аниме') +
           '</div><div class="dl-item-sub">Серия ' +
-          item.episode +
-          (item.quality ? ' · ' + item.quality : '') +
+          escapeHtml(item.episode) +
+          (item.quality ? ' · ' + escapeHtml(item.quality) : '') +
           '</div></div><a class="btn btn-ghost" href="#/title/' +
           encodeURIComponent(item.id) +
           '">Смотреть</a><button class="dl-del" type="button" data-key="' +
-          item.key +
+          escapeHtml(item.key) +
           '">Удалить</button></div>'
         );
       })
@@ -442,7 +522,8 @@
     onRoute();
     window.addEventListener('hashchange', onRoute);
     document.addEventListener('click', function (event) {
-      if (event.target.closest && event.target.closest('#episodes .ep-btn')) setTimeout(syncButton, 120);
+      var target = event.target;
+      if (target && target.closest && target.closest('#episodes .ep-btn')) setTimeout(syncButton, 120);
     });
     window.addEventListener('online', renderHome);
     window.addEventListener('offline', function () {
@@ -450,7 +531,7 @@
     });
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 
   window.AnimOffline = { list: readIndex, remove: removeEntry };
