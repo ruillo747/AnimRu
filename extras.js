@@ -49,6 +49,16 @@
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
   }
 
+  /* Навигационные клавиши не должны срабатывать в плеере: там свои N, B, M, F, K.
+     Раньше нажатие P одновременно переключало серию и уводило в профиль. */
+  function insidePlayer(target) {
+    if (document.fullscreenElement) return true;
+    var root = $('playerRoot');
+    if (!root) return false;
+    if (target && target.nodeType === 1 && root.contains(target)) return true;
+    return document.activeElement ? root.contains(document.activeElement) : false;
+  }
+
   document.addEventListener('keydown', function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     var modal = $('authModal');
@@ -60,6 +70,9 @@
       if (input) { event.preventDefault(); input.focus(); input.select(); }
       return;
     }
+
+    if (insidePlayer(event.target)) return;
+
     var routes = { h: '#/', c: '#/catalog', t: '#/top', p: '#/profile', r: '#/random', s: '#/schedule', k: '#/kodik' };
     var route = routes[event.key.toLowerCase()];
     if (route) { location.hash = route; }
@@ -74,6 +87,8 @@
   }
 
   /* ---------------- подключение модулей: доводка интерфейса, транспорт Kodik, мобильные фиксы, офлайн, расписание, каталог Kodik ---------------- */
+
+  var ASSET_VERSION = '21';
 
   (function bootstrapModules() {
     if (!document.getElementById('extras-css')) {
@@ -91,7 +106,7 @@
     ['polish.js', 'kodik-net.js', 'mobilefix.js', 'offline.js', 'schedule.js', 'kodik-browse.js', 'catalog.js'].forEach(function (file) {
       if (document.querySelector('script[src*="' + file + '"]')) return;
       var script = document.createElement('script');
-      script.src = file + '?v=20';
+      script.src = file + '?v=' + ASSET_VERSION;
       script.defer = true;
       document.body.appendChild(script);
     });
@@ -109,14 +124,14 @@
       });
     }
 
-    /* Anilibria отдаёт описание с тегами br, font, a: показываем его как обычный текст */
+    /* Anilibria отдаёт описание с тегами br, font, a: показываем его как обычный текст.
+       Разбор идёт через DOMParser, чтобы не склеивать innerHTML из данных API. */
     function fixDescription(node) {
       var raw = node.textContent || '';
       if (raw.indexOf('<') < 0 && raw.indexOf('&') < 0) return;
       var html = raw.replace(/<br\s*\/?>/gi, '\n');
-      var holder = document.createElement('div');
-      holder.innerHTML = html;
-      var text = (holder.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+      var parsed = new DOMParser().parseFromString(html, 'text/html');
+      var text = ((parsed.body && parsed.body.textContent) || '').replace(/\n{3,}/g, '\n\n').trim();
       if (text && text !== raw) node.textContent = text;
     }
 
@@ -173,7 +188,7 @@
   }
 
   function currentTitleId() {
-    var match = (location.hash || '').match(/#\/[^/]+\/([^/?#]+)/);
+    var match = (location.hash || '').match(/#\/title\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : null;
   }
 
@@ -211,16 +226,19 @@
     var time = video.currentTime;
 
     function inRange(range) {
-      return range && time >= Number(range.start) && time < Number(range.stop || range.end || 0) - 1;
+      if (!range) return false;
+      var stop = Number(range.stop != null ? range.stop : range.end);
+      if (!isFinite(stop) || stop <= 0) return false;
+      return time >= Number(range.start) && time < stop - 1;
     }
 
     if (inRange(episode.opening)) {
       button.textContent = 'Пропустить опенинг';
-      button.dataset.to = String(episode.opening.stop || episode.opening.end || 0);
+      button.dataset.to = String(episode.opening.stop != null ? episode.opening.stop : episode.opening.end);
       button.hidden = false;
     } else if (inRange(episode.ending)) {
       button.textContent = 'Пропустить эндинг';
-      button.dataset.to = String(episode.ending.stop || episode.ending.end || 0);
+      button.dataset.to = String(episode.ending.stop != null ? episode.ending.stop : episode.ending.end);
       button.hidden = false;
     } else {
       button.hidden = true;
