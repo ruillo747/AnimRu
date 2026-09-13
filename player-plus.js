@@ -1,8 +1,8 @@
 /* AnimRu — надстройка над встроенным плеером (источник Anilibria):
-   редизайн панели, ровная полоса прогресса, превью кадра на таймлайне как в YouTube,
+   перетаскивание ручки, редизайн панели, превью кадра на таймлайне как в YouTube,
    мини-плеер при прокрутке страницы и жесты перемотки.
-   Важно: ничего не отбираем у app.js — только добавляем сверху,
-   и никогда не перехватываем обычную прокрутку страницы. */
+   В app.js у полосы был только click, поэтому тянуть кружочек было невозможно —
+   здесь добавлен полноценный drag через pointer-события и захват курсора. */
 (function () {
   'use strict';
 
@@ -15,25 +15,28 @@
     '.player{border-radius:16px;overflow:hidden;background:#07070a}',
     '.player.ap-hidecursor{cursor:none}',
     '.player .p-controls{background:linear-gradient(to top,rgba(6,6,9,0.92) 0%,rgba(6,6,9,0.6) 48%,rgba(6,6,9,0) 100%);' +
-      'padding:26px 14px 10px}',
+      'padding:22px 14px 10px}',
 
-    /* ---- таймлайн ---- */
-    '.player .p-seek{position:relative;padding:10px 0 8px;cursor:pointer}',
-    '.player .p-seek-track{position:relative;height:4px;border-radius:999px;background:rgba(255,255,255,0.22);' +
+    /* ---- таймлайн: широкая зона захвата, чтобы легко брался пальцем и мышкой ---- */
+    '.player .p-seek{position:relative;padding:14px 0 12px;cursor:pointer;touch-action:none;' +
+      '-webkit-user-select:none;user-select:none}',
+    '.player .p-seek-track{position:relative;height:5px;border-radius:999px;background:rgba(255,255,255,0.22);' +
       'transition:height 120ms ease}',
-    '.player .p-seek:hover .p-seek-track,.player .p-seek.ap-drag .p-seek-track{height:6px}',
+    '.player .p-seek:hover .p-seek-track,.player .p-seek.ap-drag .p-seek-track{height:7px}',
     '.player .p-buffer{position:absolute;left:0;top:0;height:100%;border-radius:999px;background:rgba(255,255,255,0.34)}',
     '.player .p-played{position:absolute;left:0;top:0;height:100%;border-radius:999px;background:var(--accent);' +
       'box-shadow:0 0 10px rgba(255,126,29,0.4)}',
     '.player .ap-hover{position:absolute;left:0;top:0;height:100%;width:0;border-radius:999px;' +
       'background:rgba(255,255,255,0.3);opacity:0;transition:opacity 120ms ease}',
     '.player .p-seek:hover .ap-hover{opacity:1}',
-    '.player .p-knob{position:absolute;right:-7px;top:50%;width:14px;height:14px;margin-top:-7px;border-radius:50%;' +
-      'background:var(--accent);transform:scale(0);transition:transform 130ms ease}',
-    '.player .p-seek:hover .p-knob,.player .p-seek.ap-drag .p-knob{transform:scale(1)}',
+    '.player .p-knob{position:absolute;right:-8px;top:50%;width:16px;height:16px;margin-top:-8px;border-radius:50%;' +
+      'background:var(--accent);box-shadow:0 2px 8px rgba(0,0,0,0.45);transform:scale(0);' +
+      'transition:transform 130ms ease}',
+    '.player .p-seek:hover .p-knob{transform:scale(1)}',
+    '.player .p-seek.ap-drag .p-knob{transform:scale(1.25)}',
     '.player #pTip{display:none !important}',
 
-    /* ---- мини-экранчик над таймлайном (живёт в корне плеера, чтобы не обрезался) ---- */
+    /* ---- мини-экранчик над таймлайном ---- */
     '.ap-tip{position:absolute;left:0;bottom:0;z-index:9;display:none;flex-direction:column;align-items:center;' +
       'pointer-events:none;transform:translateX(-50%)}',
     '.ap-tip.on{display:flex}',
@@ -79,7 +82,8 @@
     '.player.ap-mini .ap-mini-x{display:block}',
     '.ap-slot{display:none}',
     '.ap-slot.on{display:block;width:100%;border-radius:16px;border:1px dashed var(--line);background:var(--surface-2)}',
-    '@media (max-width:620px){.player.ap-mini{width:62vw;max-width:none;right:10px;bottom:10px}}',
+    '@media (max-width:620px){.player.ap-mini{width:62vw;max-width:none;right:10px;bottom:10px}' +
+      '.player .p-seek{padding:16px 0 14px}}',
     '@media (prefers-reduced-motion:reduce){.player *{transition:none !important}}'
   ].join('');
 
@@ -102,9 +106,7 @@
     return hours ? hours + ':' + tail : tail;
   }
 
-  /* ---------------- откуда берём кадры ----------------
-     HLS в основном видео живёт через blob, из него вторую дорожку не собрать,
-     поэтому перехватываем адрес плейлиста на Hls.prototype.loadSource. */
+  /* ---------------- откуда берём кадры для превью ---------------- */
 
   var lastSource = '';
   var diag = { source: '', mode: '', ready: false, error: '', frames: 0 };
@@ -166,7 +168,6 @@
       node.playsInline = true;
       node.setAttribute('playsinline', '');
       node.preload = 'auto';
-      /* crossOrigin не ставим: без CORS-заголовков видео вообще не загрузится */
       node.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none';
       document.body.appendChild(node);
       this.video = node;
@@ -208,7 +209,6 @@
             startLevel: 0
           });
           hls.on(window.Hls.Events.MANIFEST_PARSED, function () {
-            /* самое низкое качество: картинка мелкая, зато грузится быстро */
             try { hls.currentLevel = 0; } catch (e) {}
             markReady();
           });
@@ -238,7 +238,6 @@
       return node;
     },
 
-    /* просим кадр на секунде time и рисуем его на canvas */
     grab: function (canvas, time) {
       var node = this.video;
       if (!node || this.dead) return;
@@ -285,7 +284,7 @@
     }
   };
 
-  /* ---------------- сборка надстроек ---------------- */
+  /* ---------------- сборка ---------------- */
 
   function boot() {
     injectCss();
@@ -294,18 +293,19 @@
     var root = byId('playerRoot');
     var video = byId('player');
     var seek = byId('pSeek');
-    if (!root || !video || !seek || root.getAttribute('data-plus')) return !!(root && root.getAttribute('data-plus'));
+    if (!root || !video || !seek) return false;
+    if (root.getAttribute('data-plus')) return true;
     root.setAttribute('data-plus', '1');
 
     var track = seek.querySelector('.p-seek-track') || seek;
     var played = byId('pPlayed');
     var buffer = byId('pBuffer');
+    var current = byId('pCur');
 
     var hover = document.createElement('div');
     hover.className = 'ap-hover';
     if (track && track !== seek) track.insertBefore(hover, played || null);
 
-    /* превью вешаем в корень плеера: внутри .p-seek его обрезало overflow */
     var tip = document.createElement('div');
     tip.className = 'ap-tip';
     tip.innerHTML = '<div class="ap-shot"><canvas width="' + SHOT_W + '" height="' + SHOT_H + '"></canvas></div>' +
@@ -347,34 +347,45 @@
       setTimeout(function () { node.classList.remove('on'); }, 400);
     }
 
-    /* ---- ровная полоса: рисуем её на каждом кадре, но молчим,
-           пока пользователь тянет ручку — там главный app.js ---- */
+    function duration() {
+      return isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    }
+
+    /* ---- ровная полоса на каждом кадре (пока не тянем ручку) ---- */
     var dragging = false;
 
     function frame() {
-      if (!dragging && played && video.duration && isFinite(video.duration)) {
-        var ratio = Math.min(1, Math.max(0, video.currentTime / video.duration));
+      var total = duration();
+      if (!dragging && played && total) {
+        var ratio = Math.min(1, Math.max(0, video.currentTime / total));
         played.style.width = (ratio * 100).toFixed(3) + '%';
         if (buffer && video.buffered && video.buffered.length) {
           var end = video.buffered.end(video.buffered.length - 1);
-          buffer.style.width = Math.min(100, (end / video.duration) * 100).toFixed(2) + '%';
+          buffer.style.width = Math.min(100, (end / total) * 100).toFixed(2) + '%';
         }
       }
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
 
-    /* ---- превью на наведении ---- */
+    /* ---- превью ---- */
     var shotTimer = null;
 
+    function ratioAt(clientX) {
+      var rect = track.getBoundingClientRect();
+      if (!rect.width) return 0;
+      return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    }
+
     function showTip(clientX) {
-      if (!video.duration || !isFinite(video.duration)) return;
+      var total = duration();
+      if (!total) return;
       var trackRect = track.getBoundingClientRect();
       var rootRect = root.getBoundingClientRect();
       if (!trackRect.width) return;
 
-      var ratio = Math.min(1, Math.max(0, (clientX - trackRect.left) / trackRect.width));
-      var time = ratio * video.duration;
+      var ratio = ratioAt(clientX);
+      var time = ratio * total;
       var half = SHOT_W / 2 + 8;
       var x = Math.min(rootRect.width - half, Math.max(half, clientX - rootRect.left));
 
@@ -396,34 +407,90 @@
       hover.style.width = '0%';
     }
 
-    seek.addEventListener('mousemove', function (event) { showTip(event.clientX); });
-    seek.addEventListener('mouseenter', function (event) { showTip(event.clientX); });
-    seek.addEventListener('mouseleave', function () { if (!dragging) hideTip(); });
+    /* ---- настоящее перетаскивание ручки.
+           В app.js у полосы только click, поэтому тянуть было нечем.
+           preventDefault в pointerdown гасит совместимый click, чтобы не было двойного сека. ---- */
+    var lastScrub = 0;
+    var resumeAfterDrag = false;
 
-    /* пока тянем — показываем кадр, но ширину полосы не трогаем */
+    function seekTo(ratio) {
+      var total = duration();
+      if (!total) return;
+      try { video.currentTime = Math.min(total - 0.05, Math.max(0, ratio * total)); } catch (e) {}
+    }
+
+    function paintRatio(ratio) {
+      if (played) played.style.width = (ratio * 100).toFixed(3) + '%';
+      var total = duration();
+      if (current && total) current.textContent = clock(ratio * total);
+      seek.setAttribute('aria-valuenow', Math.round(ratio * 100));
+    }
+
     seek.addEventListener('pointerdown', function (event) {
+      if (event.button != null && event.button !== 0) return;
+      if (!duration()) return;
       dragging = true;
       seek.classList.add('ap-drag');
+      resumeAfterDrag = !video.paused;
+      try { seek.setPointerCapture(event.pointerId); } catch (e) {}
+      var ratio = ratioAt(event.clientX);
+      paintRatio(ratio);
+      seekTo(ratio);
       showTip(event.clientX);
+      event.preventDefault();
     });
-    window.addEventListener('pointermove', function (event) {
-      if (dragging) showTip(event.clientX);
+
+    seek.addEventListener('pointermove', function (event) {
+      if (!dragging) {
+        showTip(event.clientX);
+        return;
+      }
+      var ratio = ratioAt(event.clientX);
+      paintRatio(ratio);
+      showTip(event.clientX);
+      /* живой скраб без шторма seek-ов */
+      var now = Date.now();
+      if (now - lastScrub > 140) {
+        lastScrub = now;
+        seekTo(ratio);
+      }
+      event.preventDefault();
     });
-    window.addEventListener('pointerup', function () {
+
+    function endDrag(event) {
       if (!dragging) return;
       dragging = false;
       seek.classList.remove('ap-drag');
+      if (event && event.pointerId != null) {
+        try { seek.releasePointerCapture(event.pointerId); } catch (e) {}
+      }
+      if (event && event.clientX != null) seekTo(ratioAt(event.clientX));
+      if (resumeAfterDrag) {
+        var promise = video.play();
+        if (promise && promise.catch) promise.catch(function () {});
+      }
       hideTip();
+    }
+
+    seek.addEventListener('pointerup', endDrag);
+    seek.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('blur', function () { endDrag(null); });
+
+    seek.addEventListener('mouseenter', function (event) { showTip(event.clientX); });
+    seek.addEventListener('mouseleave', function () { if (!dragging) hideTip(); });
+
+    /* клавиатура на самой полосе */
+    seek.setAttribute('tabindex', '0');
+    seek.addEventListener('keydown', function (event) {
+      var total = duration();
+      if (!total) return;
+      if (event.key === 'ArrowRight') { seekTo((video.currentTime + 5) / total); event.preventDefault(); }
+      if (event.key === 'ArrowLeft') { seekTo((video.currentTime - 5) / total); event.preventDefault(); }
+      if (event.key === 'Home') { seekTo(0); event.preventDefault(); }
+      if (event.key === 'End') { seekTo(0.999); event.preventDefault(); }
     });
 
-    /* на таче показываем кадр при ведении пальцем по таймлайну */
-    seek.addEventListener('touchmove', function (event) {
-      var touch = event.touches && event.touches[0];
-      if (touch) showTip(touch.clientX);
-    }, { passive: true });
-    seek.addEventListener('touchend', function () { setTimeout(hideTip, 400); });
-
-    /* при смене серии сбрасываем теневое видео */
     video.addEventListener('loadstart', function () { shots.reset(); });
     video.addEventListener('emptied', function () { shots.reset(); });
 
@@ -445,8 +512,7 @@
       }
     }, true);
 
-    /* ---- громкость колёсиком: только с Shift, в полном экране или над самой панелью.
-           Обычная прокрутка страницы над плеером работает как всегда. ---- */
+    /* ---- громкость колёсиком только с Shift / в полном экране / над панелью ---- */
     root.addEventListener('wheel', function (event) {
       var overControls = event.target && event.target.closest && event.target.closest('.p-controls');
       if (!event.shiftKey && !document.fullscreenElement && !overControls) return;
@@ -473,13 +539,12 @@
       root.classList.remove('ap-hidecursor');
       clearTimeout(cursorTimer);
       cursorTimer = setTimeout(function () {
-        if (!video.paused) root.classList.add('ap-hidecursor');
+        if (!video.paused && !dragging) root.classList.add('ap-hidecursor');
       }, 2200);
     });
     video.addEventListener('pause', function () { root.classList.remove('ap-hidecursor'); });
 
-    /* ---- мини-плеер: замещаем место заглушкой фиксированной высоты,
-           иначе страница прыгала при переходе в мини-режим ---- */
+    /* ---- мини-плеер ---- */
     var slot = document.createElement('div');
     slot.className = 'ap-slot';
     if (root.parentNode) root.parentNode.insertBefore(slot, root);
@@ -528,8 +593,9 @@
       setTimeout(function () { miniAllowed = true; }, 1500);
     });
 
-    root.addEventListener('click', function () {
+    root.addEventListener('click', function (event) {
       if (!root.classList.contains('ap-mini')) return;
+      if (event.target && event.target.closest && event.target.closest('.p-controls, .ap-mini-x')) return;
       setMini(false);
       setTimeout(function () { anchor.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 30);
     });
@@ -545,7 +611,9 @@
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       var node = event.target;
       if (node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable)) return;
-      if (!video.duration || !isFinite(video.duration)) return;
+      if (node === seek) return;
+      var total = duration();
+      if (!total) return;
       var rect = root.getBoundingClientRect();
       var visible = document.fullscreenElement || root.classList.contains('ap-mini') ||
         (rect.top < window.innerHeight && rect.bottom > 0 && rect.height > 0);
@@ -556,16 +624,10 @@
         video.currentTime = Math.max(0, video.currentTime - 10);
         bump(jumpLeft);
       } else if (key === 'l') {
-        video.currentTime = Math.min(video.duration, video.currentTime + 10);
+        video.currentTime = Math.min(total, video.currentTime + 10);
         bump(jumpRight);
-      } else if (event.key === 'ArrowUp') {
-        video.volume = Math.min(1, video.volume + 0.05);
-        flash('Громкость ' + Math.round(video.volume * 100) + '%');
-      } else if (event.key === 'ArrowDown') {
-        video.volume = Math.max(0, video.volume - 0.05);
-        flash('Громкость ' + Math.round(video.volume * 100) + '%');
       } else if (/^[0-9]$/.test(event.key)) {
-        video.currentTime = video.duration * (Number(event.key) / 10);
+        video.currentTime = total * (Number(event.key) / 10);
         flash(clock(video.currentTime));
       } else {
         return;
