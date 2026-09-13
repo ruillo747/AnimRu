@@ -1,5 +1,5 @@
-/* AnimRu: каталог Kodik в духе Anilibria — сетка постеров, фильтры, бесконечная подгрузка.
-   Запросы идут только через AnimKodikNet: он сам подбирает токен и передатчик. */
+/* AnimRu: каталог Kodik — сетка постеров, расширенные фильтры по документации API,
+   бесконечная подгрузка. Запросы идут только через AnimKodikNet: он сам подбирает токен и передатчик. */
 (function () {
   'use strict';
 
@@ -7,6 +7,7 @@
   var LIMIT = 50;
   var WANT = 24;
   var HOPS = 4;
+  var LS = 'animru:catalog';
 
   /* Аниме-жанры из документации Kodik: идут в anime_genres и чувствительны к регистру.
      Обычные жанры («драма», «боевик» и т.д., с маленькой буквы) идут в genres. */
@@ -23,14 +24,22 @@
     '.ac-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}',
     '.ac-head h1{margin:0;font-size:26px;letter-spacing:-0.01em}',
     '.ac-count{font-size:13px;color:var(--muted)}',
-    '.ac-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}',
+    '.ac-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}',
     '.ac-search{flex:1 1 220px;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;' +
       'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px}',
-    '.ac-search:focus{outline:none;border-color:var(--accent)}',
+    '.ac-studio{flex:0 1 190px;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;' +
+      'background:var(--surface-2);color:var(--text);font:inherit;font-size:14px}',
+    '.ac-search:focus,.ac-studio:focus{outline:none;border-color:var(--accent)}',
     '.ac-sel{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);' +
       'color:var(--text);font:inherit;font-size:13px;max-width:100%}',
     '.ac-sel:focus{outline:none;border-color:var(--accent)}',
-    '.ac-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}',
+    '.ac-toggles{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:0 2px 14px;font-size:13px;color:var(--muted)}',
+    '.ac-toggles label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}',
+    '.ac-toggles input{accent-color:var(--accent)}',
+    '.ac-reset{margin-left:auto;padding:7px 12px;border:1px solid var(--line);border-radius:999px;' +
+      'background:var(--surface-2);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}',
+    '.ac-reset:hover{color:var(--text);border-color:var(--accent)}',
+    '.ac-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}',
     '.ac-chip{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);' +
       'color:var(--muted);font:inherit;font-size:13px;cursor:pointer;transition:color var(--t-fast,120ms) ease,' +
       'border-color var(--t-fast,120ms) ease}',
@@ -61,9 +70,11 @@
       '.ac-head h1{font-size:21px}' +
       '.ac-bar{gap:6px}' +
       '.ac-sel{flex:1 1 46%}' +
+      '.ac-studio{flex:1 1 100%}' +
       '.ac-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}' +
       '.ac-chips::-webkit-scrollbar{display:none}' +
       '.ac-chip{flex:0 0 auto}' +
+      '.ac-reset{margin-left:0}' +
     '}'
   ].join('');
 
@@ -80,15 +91,89 @@
     { id: 'anons', label: 'Анонс' }
   ];
 
+  /* anime_kind из документации */
+  var KINDS = [
+    { id: '', label: 'Любой вид' },
+    { id: 'tv', label: 'ТВ-сериал' },
+    { id: 'movie', label: 'Фильм' },
+    { id: 'ova', label: 'OVA' },
+    { id: 'ona', label: 'ONA' },
+    { id: 'special', label: 'Спешл' },
+    { id: 'tv_special', label: 'ТВ-спешл' },
+    { id: 'music', label: 'Клип' }
+  ];
+
+  var VOICES = [
+    { id: '', label: 'Любой перевод' },
+    { id: 'voice', label: 'Озвучка' },
+    { id: 'subtitles', label: 'Субтитры' }
+  ];
+
+  var MPAA = [
+    { id: '', label: 'Любой рейтинг' },
+    { id: 'g', label: 'G' },
+    { id: 'pg', label: 'PG' },
+    { id: 'pg-13', label: 'PG-13' },
+    { id: 'r', label: 'R' },
+    { id: 'r+', label: 'R+' },
+    { id: 'rx', label: 'Rx' }
+  ];
+
+  var AGES = [
+    { id: '', label: 'Любой возраст' },
+    { id: '0-6', label: 'До 6+' },
+    { id: '0-12', label: 'До 12+' },
+    { id: '0-16', label: 'До 16+' },
+    { id: '16-21', label: '16+ и выше' },
+    { id: '18-21', label: 'Только 18+' }
+  ];
+
+  var RATINGS = [
+    { id: '', label: 'Любая оценка' },
+    { id: '9-10', label: 'Шикимори 9+' },
+    { id: '8-10', label: 'Шикимори 8+' },
+    { id: '7-10', label: 'Шикимори 7+' },
+    { id: '6-10', label: 'Шикимори 6+' }
+  ];
+
+  var DURATIONS = [
+    { id: '', label: 'Любая длина' },
+    { id: '0-10', label: 'До 10 мин' },
+    { id: '11-30', label: '11–30 мин' },
+    { id: '31-60', label: '31–60 мин' },
+    { id: '61-400', label: 'Больше часа' }
+  ];
+
+  var COUNTRIES = [
+    { id: '', label: 'Любая страна' },
+    { id: 'Япония', label: 'Япония' },
+    { id: 'Китай', label: 'Китай' },
+    { id: 'Корея Южная', label: 'Южная Корея' },
+    { id: 'США', label: 'США' }
+  ];
+
   var SORTS = [
     { id: 'updated_at', label: 'По обновлению' },
     { id: 'created_at', label: 'По добавлению' },
     { id: 'year', label: 'По году' },
-    { id: 'shikimori_rating', label: 'По оценке' }
+    { id: 'shikimori_rating', label: 'По оценке Шикимори' },
+    { id: 'kinopoisk_rating', label: 'По оценке Кинопоиска' },
+    { id: 'imdb_rating', label: 'По оценке IMDb' }
   ];
 
+  var ORDERS = [
+    { id: 'desc', label: 'Сначала новое' },
+    { id: 'asc', label: 'Сначала старое' }
+  ];
+
+  var DEFAULTS = {
+    title: '', type: '', genre: '', year: '', status: '', kind: '', voice: '',
+    mpaa: '', age: '', rating: '', duration: '', country: '', studio: '',
+    sort: 'updated_at', order: 'desc', noCamrip: true, noLgbt: false
+  };
+
   var state = {
-    filters: { title: '', type: '', genre: '', year: '', status: '', sort: 'updated_at' },
+    filters: null,
     items: [],
     seen: {},
     next: null,
@@ -100,6 +185,35 @@
     genreKey: '',
     mounted: false
   };
+
+  /* ---------------- фильтры: память ---------------- */
+
+  function freshFilters() {
+    var out = {};
+    Object.keys(DEFAULTS).forEach(function (key) { out[key] = DEFAULTS[key]; });
+    return out;
+  }
+
+  function loadFilters() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) { saved = null; }
+    var out = freshFilters();
+    if (saved && typeof saved === 'object') {
+      Object.keys(DEFAULTS).forEach(function (key) {
+        if (saved[key] === undefined || saved[key] === null) return;
+        out[key] = typeof DEFAULTS[key] === 'boolean' ? !!saved[key] : String(saved[key]);
+      });
+    }
+    /* поиск по названию не запоминаем: он живёт одну сессию */
+    out.title = '';
+    return out;
+  }
+
+  function saveFilters() {
+    try { localStorage.setItem(LS, JSON.stringify(state.filters)); } catch (e) {}
+  }
+
+  state.filters = loadFilters();
 
   function byId(id) { return document.getElementById(id); }
 
@@ -189,32 +303,48 @@
       });
   }
 
-  function listParams(key) {
+  /* общие фильтры: работают и в /list, и в /search */
+  function commonParams() {
     var f = state.filters;
-    var params = {
+    return {
       limit: LIMIT,
       types: f.type || 'anime,anime-serial',
       year: f.year,
+      anime_kind: f.kind,
       anime_status: f.status,
-      sort: f.sort,
-      order: 'desc',
+      translation_type: f.voice,
+      rating_mpaa: f.mpaa,
+      minimal_age: f.age,
+      shikimori_rating: f.rating,
+      duration: f.duration,
+      countries: f.country,
+      anime_studios: f.studio,
+      /* камрипы и LGBT-метки отключаем строками: false отбрасывается как пустое значение */
+      camrip: f.noCamrip ? 'false' : '',
+      lgbt: f.noLgbt ? 'false' : '',
       with_material_data: true
     };
+  }
+
+  function withGenre(params, key) {
+    var f = state.filters;
     if (f.genre && key) params[key] = genreValue(f.genre, key);
     return params;
   }
 
-  function searchParams(key) {
+  function listParams(key) {
     var f = state.filters;
-    var params = {
-      limit: LIMIT,
-      title: f.title,
-      types: f.type || 'anime,anime-serial',
-      year: f.year,
-      with_material_data: true
-    };
-    if (f.genre && key) params[key] = genreValue(f.genre, key);
-    return params;
+    var params = commonParams();
+    params.sort = f.sort;
+    params.order = f.order || 'desc';
+    return withGenre(params, key);
+  }
+
+  /* /search не поддерживает sort и order */
+  function searchParams(key) {
+    var params = commonParams();
+    params.title = state.filters.title;
+    return withGenre(params, key);
   }
 
   /* Kodik даёт отдельную запись на каждую озвучку и серию — склеиваем в одну карточку */
@@ -322,6 +452,7 @@
     state.failed = false;
     state.total = 0;
     state.genreKey = '';
+    saveFilters();
     fetchPortion();
   }
 
@@ -384,9 +515,22 @@
     return out;
   }
 
+  /* год: конкретные значения плюс диапазоны — API принимает и «2021», и «2010-2019» */
   function yearOptions(selected) {
     var now = new Date().getFullYear();
+    var ranges = [
+      { id: String(now - 4) + '-' + String(now), label: 'Последние 5 лет' },
+      { id: '2020-' + String(now), label: '2020-е' },
+      { id: '2010-2019', label: '2010-е' },
+      { id: '2000-2009', label: '2000-е' },
+      { id: '1990-1999', label: '1990-е' },
+      { id: '1980-1989', label: '1980-е' }
+    ];
     var out = '<option value="">Любой год</option>';
+    out += ranges.map(function (row) {
+      return '<option value="' + escapeHtml(row.id) + '"' +
+        (String(selected) === row.id ? ' selected' : '') + '>' + escapeHtml(row.label) + '</option>';
+    }).join('');
     for (var year = now; year >= 1980; year -= 1) {
       out += '<option value="' + year + '"' + (String(selected) === String(year) ? ' selected' : '') + '>' + year + '</option>';
     }
@@ -398,6 +542,10 @@
       return '<option value="' + escapeHtml(row.id) + '"' + (row.id === selected ? ' selected' : '') + '>' +
         escapeHtml(row.label) + '</option>';
     }).join('');
+  }
+
+  function selectHtml(id, list, selected) {
+    return '<select class="ac-sel" id="' + id + '">' + options(list, selected) + '</select>';
   }
 
   function render() {
@@ -420,7 +568,7 @@
     if (stateLine) {
       var message = '';
       if (!state.loading && state.failed && !state.items.length) message = 'Kodik не ответил. Нажми «Повторить» — транспорт подберётся заново.';
-      else if (!state.loading && !state.items.length) message = 'Ничего не нашлось — попробуй сменить фильтры.';
+      else if (!state.loading && !state.items.length) message = 'Ничего не нашлось — попробуй ослабить фильтры или нажать «Сбросить».';
       stateLine.hidden = !message;
       stateLine.textContent = message;
     }
@@ -449,8 +597,27 @@
       escapeHtml(f.title) + '">' +
       '<select class="ac-sel" id="acGenre"><option value="">Любой жанр</option></select>' +
       '<select class="ac-sel" id="acYear">' + yearOptions(f.year) + '</select>' +
-      '<select class="ac-sel" id="acStatus">' + options(STATUS, f.status) + '</select>' +
-      '<select class="ac-sel" id="acSort">' + options(SORTS, f.sort) + '</select>' +
+      selectHtml('acKind', KINDS, f.kind) +
+      selectHtml('acStatus', STATUS, f.status) +
+      '</div>' +
+      '<div class="ac-bar">' +
+      selectHtml('acVoice', VOICES, f.voice) +
+      selectHtml('acMpaa', MPAA, f.mpaa) +
+      selectHtml('acAge', AGES, f.age) +
+      selectHtml('acRating', RATINGS, f.rating) +
+      selectHtml('acDuration', DURATIONS, f.duration) +
+      selectHtml('acCountry', COUNTRIES, f.country) +
+      '<input class="ac-studio" id="acStudio" type="text" placeholder="Студия, напр. Bones" autocomplete="off" value="' +
+      escapeHtml(f.studio) + '">' +
+      '</div>' +
+      '<div class="ac-bar">' +
+      selectHtml('acSort', SORTS, f.sort) +
+      selectHtml('acOrder', ORDERS, f.order) +
+      '</div>' +
+      '<div class="ac-toggles">' +
+      '<label><input type="checkbox" id="acNoCamrip"' + (f.noCamrip ? ' checked' : '') + '> Без экранок</label>' +
+      '<label><input type="checkbox" id="acNoLgbt"' + (f.noLgbt ? ' checked' : '') + '> Без LGBT-метки</label>' +
+      '<button type="button" class="ac-reset" id="acReset">Сбросить фильтры</button>' +
       '</div>' +
       '<div class="ac-grid" id="acGrid"></div>' +
       '<p class="ac-state" id="acState" hidden></p>' +
@@ -471,22 +638,53 @@
     });
 
     var search = byId('acSearch');
-    var timer = null;
+    var searchTimer = null;
     search.addEventListener('input', function () {
-      clearTimeout(timer);
-      timer = setTimeout(function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
         f.title = search.value.trim();
         reload();
       }, 400);
     });
 
-    [['acGenre', 'genre'], ['acYear', 'year'], ['acStatus', 'status'], ['acSort', 'sort']].forEach(function (pair) {
+    var studio = byId('acStudio');
+    var studioTimer = null;
+    studio.addEventListener('input', function () {
+      clearTimeout(studioTimer);
+      studioTimer = setTimeout(function () {
+        f.studio = studio.value.trim();
+        reload();
+      }, 500);
+    });
+
+    [
+      ['acGenre', 'genre'], ['acYear', 'year'], ['acKind', 'kind'], ['acStatus', 'status'],
+      ['acVoice', 'voice'], ['acMpaa', 'mpaa'], ['acAge', 'age'], ['acRating', 'rating'],
+      ['acDuration', 'duration'], ['acCountry', 'country'], ['acSort', 'sort'], ['acOrder', 'order']
+    ].forEach(function (pair) {
       var node = byId(pair[0]);
       if (!node) return;
       node.addEventListener('change', function () {
         f[pair[1]] = node.value;
         reload();
       });
+    });
+
+    [['acNoCamrip', 'noCamrip'], ['acNoLgbt', 'noLgbt']].forEach(function (pair) {
+      var node = byId(pair[0]);
+      if (!node) return;
+      node.addEventListener('change', function () {
+        f[pair[1]] = !!node.checked;
+        reload();
+      });
+    });
+
+    byId('acReset').addEventListener('click', function () {
+      state.filters = freshFilters();
+      state.mounted = false;
+      saveFilters();
+      mount(root);
+      reload();
     });
 
     byId('acMore').addEventListener('click', function () {
@@ -506,6 +704,7 @@
       observer.observe(byId('acSentinel'));
     }
 
+    state.mounted = true;
     render();
     if (!state.items.length) fetchPortion();
   }
@@ -521,7 +720,6 @@
     if (!root) return;
     if (state.mounted && byId('acGrid')) return;
     if (!root.children.length) return;
-    state.mounted = true;
     mount(root);
   }
 
@@ -548,6 +746,7 @@
   window.AnimCatalog = {
     reload: reload,
     genres: function () { return state.genres || []; },
+    filters: function () { return state.filters; },
     state: function () { return state; }
   };
 })();
