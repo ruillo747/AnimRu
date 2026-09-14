@@ -11,7 +11,7 @@ window.ANIMRU_CONFIG = {
   ['kodik-net.js', 'mobile-nav.js', 'unified-catalog.js'].forEach(function (file) {
     if (document.querySelector('script[src*="' + file + '"]')) return;
     var script = document.createElement('script');
-    script.src = file + '?v=31';
+    script.src = file + '?v=32';
     script.defer = true;
     (document.head || document.documentElement).appendChild(script);
   });
