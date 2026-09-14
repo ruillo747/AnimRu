@@ -7,14 +7,28 @@ window.ANIMRU_CONFIG = {
   supabaseAnonKey: 'sb_publishable_8xTHJnTYpoeYtVZiDLcKDA_9KqDVqfL'
 };
 
-/* Критичные модули каталога подключаются рано и с общей версией. catalog.js
-   добавлен сюда специально: старый extras.js больше не сможет оставить в
-   браузере предыдущую версию каталога Kodik. */
+/* Критичные модули каталога подключаются рано и с общей версией. Проверяем
+   точное имя файла: selector src*="catalog.js" ошибочно считал
+   unified-catalog.js самим catalog.js и пропускал новый каталог Kodik. */
 (function () {
-  ['kodik-net.js', 'mobile-nav.js', 'unified-catalog.js', 'catalog.js'].forEach(function (file) {
-    if (document.querySelector('script[src*="' + file + '"]')) return;
+  var VERSION = '34';
+  var files = ['kodik-net.js', 'mobile-nav.js', 'catalog.js', 'unified-catalog.js'];
+
+  function hasExactScript(file) {
+    return Array.prototype.some.call(document.scripts || [], function (script) {
+      try {
+        var path = new URL(script.src, location.href).pathname;
+        return path.slice(path.lastIndexOf('/') + 1) === file;
+      } catch (e) {
+        return false;
+      }
+    });
+  }
+
+  files.forEach(function (file) {
+    if (hasExactScript(file)) return;
     var script = document.createElement('script');
-    script.src = file + '?v=33';
+    script.src = file + '?v=' + VERSION;
     script.defer = true;
     (document.head || document.documentElement).appendChild(script);
   });
