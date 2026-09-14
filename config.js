@@ -1,32 +1,34 @@
-/* Настройки сайта. Чтобы аккаунты работали на всех устройствах,
-   создайте бесплатный проект Supabase, выполните supabase/schema.sql
-   и вставьте здесь Project URL и anon public key.
-   Publishable/anon key можно использовать в клиенте: доступ ограничивает RLS. */
+/* Настройки сайта. Publishable/anon key можно использовать в клиенте: доступ ограничивает RLS. */
 window.ANIMRU_CONFIG = {
   supabaseUrl: 'https://ompdnsozzsdnxktcmawe.supabase.co',
   supabaseAnonKey: 'sb_publishable_8xTHJnTYpoeYtVZiDLcKDA_9KqDVqfL'
 };
 
-/* Критичные модули каталога подключаются рано и с общей версией. Проверяем
-   точное имя файла: selector src*="catalog.js" ошибочно считал
-   unified-catalog.js самим catalog.js и пропускал новый каталог Kodik. */
+/* Критичные модули и мобильная тема подключаются рано. Сравниваем точное имя
+   файла, чтобы unified-catalog.js не принимался за catalog.js. */
 (function () {
-  var VERSION = '34';
-  var files = ['kodik-net.js', 'mobile-nav.js', 'catalog.js', 'unified-catalog.js'];
+  var VERSION = '35';
 
-  function hasExactScript(file) {
-    return Array.prototype.some.call(document.scripts || [], function (script) {
-      try {
-        var path = new URL(script.src, location.href).pathname;
-        return path.slice(path.lastIndexOf('/') + 1) === file;
-      } catch (e) {
-        return false;
-      }
-    });
+  function fileName(url) {
+    try { var path = new URL(url, location.href).pathname; return path.slice(path.lastIndexOf('/') + 1); }
+    catch (e) { return ''; }
+  }
+  function hasScript(file) {
+    return Array.prototype.some.call(document.scripts || [], function (node) { return fileName(node.src) === file; });
+  }
+  function hasStyle(file) {
+    return Array.prototype.some.call(document.querySelectorAll('link[rel="stylesheet"]'), function (node) { return fileName(node.href) === file; });
   }
 
-  files.forEach(function (file) {
-    if (hasExactScript(file)) return;
+  if (!hasStyle('mobile-app.css')) {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'mobile-app.css?v=' + VERSION;
+    (document.head || document.documentElement).appendChild(link);
+  }
+
+  ['kodik-net.js', 'mobile-nav.js', 'catalog.js', 'unified-catalog.js'].forEach(function (file) {
+    if (hasScript(file)) return;
     var script = document.createElement('script');
     script.src = file + '?v=' + VERSION;
     script.defer = true;
