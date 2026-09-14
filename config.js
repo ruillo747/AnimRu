@@ -7,11 +7,14 @@ window.ANIMRU_CONFIG = {
   supabaseAnonKey: 'sb_publishable_8xTHJnTYpoeYtVZiDLcKDA_9KqDVqfL'
 };
 
+/* Критичные модули каталога подключаются рано и с общей версией. catalog.js
+   добавлен сюда специально: старый extras.js больше не сможет оставить в
+   браузере предыдущую версию каталога Kodik. */
 (function () {
-  ['kodik-net.js', 'mobile-nav.js', 'unified-catalog.js'].forEach(function (file) {
+  ['kodik-net.js', 'mobile-nav.js', 'unified-catalog.js', 'catalog.js'].forEach(function (file) {
     if (document.querySelector('script[src*="' + file + '"]')) return;
     var script = document.createElement('script');
-    script.src = file + '?v=32';
+    script.src = file + '?v=33';
     script.defer = true;
     (document.head || document.documentElement).appendChild(script);
   });
