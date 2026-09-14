@@ -1,6 +1,6 @@
 /* AnimRu service worker: оболочка доступна офлайн, потоковое видео не кэшируется,
    но специально скачанные серии отдаются из отдельного кэша. */
-const CACHE = 'animru-v33'
+const CACHE = 'animru-v34'
 const OFFLINE = 'animru-offline'
 const SHELL = ['./','index.html','style.css','config.js','db.js','gamify.js','app.js','auth.js','social.js','extras.js','kodik.js','polish.js','kodik-net.js','mobile-nav.js','unified-catalog.js','mobilefix.js','offline.js','schedule.js','kodik-browse.js','catalog.js','player-plus.js','manifest.webmanifest']
 async function precache(){const cache=await caches.open(CACHE);await Promise.all(SHELL.map((url)=>cache.add(url).catch(()=>{})))}
