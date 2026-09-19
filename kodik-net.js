@@ -1,8 +1,4 @@
-/* AnimRu — транспорт для API Kodik.
-   Работает по неофициальной документации AnimeParsers:
-   нужен рабочий token, запросы идут на /search, /list, /translations, /genres.
-   У браузера две проблемы: у API нет CORS и токены периодически меняются.
-   Модуль перебирает пары «токен + передатчик», запоминает рабочую и через неё ведёт все запросы. */
+/* AnimRu: единый транспорт Kodik через собственный Cloudflare Worker. */
 (function () {
   'use strict';
 
@@ -13,84 +9,56 @@
   var LS_PROXY = 'animru:kodik-proxy';
   var TOKENS_URL = 'https://raw.githubusercontent.com/YaNesyTortiK/AnimeParsers/main/kdk_tokns/tokens.json';
   var IN_APP = /AnimRu\//.test(navigator.userAgent || '');
-  var TIMEOUT = 9000;
-  /* свой Cloudflare Worker: единственный канал, который не зависит от чужих лимитов */
+  var TIMEOUT = 7000;
   var DEFAULT_PROXY = 'https://animru.nozirovruillo.workers.dev/?url=';
-
-  /* известные общедоступные токены (расшифрованы из tokens.json) */
   var BASE_TOKENS = [
     '56a768d08f43091901c44b54fe970049',
     '447d179e875efe44217f20d1ee2146be',
     '41dd95f84c21719b09d6c71182237a25',
     '77b567ec164db6ca9162d2f3dc4948c3'
   ];
-
-  /* запасные передатчики с заголовками CORS (большинство живёт недолго) */
-  var ROUTES = [
-    { id: 'allorigins', wrap: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
-    { id: 'codetabs', wrap: function (u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
-    { id: 'corseu', wrap: function (u) { return 'https://cors.eu.org/' + u; } },
-    { id: 'jina', wrap: function (u) { return 'https://r.jina.ai/' + u; } }
-  ];
-
-  /* свой прокси всегда первый, прямой запрос — только в приложении */
-  (function orderRoutes() {
-    var custom = '';
-    try { custom = localStorage.getItem(LS_PROXY) || ''; } catch (e) {}
-    if (!custom) custom = DEFAULT_PROXY;
-    if (custom) {
-      ROUTES.unshift({
-        id: 'custom',
-        wrap: function (u) {
-          return custom.indexOf('{url}') >= 0
-            ? custom.replace('{url}', encodeURIComponent(u))
-            : custom + encodeURIComponent(u);
-        }
-      });
-    }
-    if (IN_APP || location.protocol === 'file:') {
-      ROUTES.unshift({ id: 'direct', wrap: function (u) { return u; } });
-    }
-  })();
-
-  /* ---------------- служебное ---------------- */
+  var nativeFetch = window.fetch.bind(window);
+  var ROUTES = [];
 
   function read(key) {
     try { return localStorage.getItem(key) || ''; } catch (e) { return ''; }
   }
-
   function write(key, value) {
     try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch (e) {}
   }
 
-  /* чистый fetch из скрытого кадра: не попадаем в свои же перехватчики */
-  var nativeFetch = window.fetch.bind(window);
-  (function () {
-    try {
-      var frame = document.createElement('iframe');
-      frame.setAttribute('aria-hidden', 'true');
-      frame.style.display = 'none';
-      (document.body || document.documentElement).appendChild(frame);
-      var inner = frame.contentWindow;
-      if (inner && inner.fetch) nativeFetch = inner.fetch.bind(inner);
-    } catch (e) {}
+  (function buildRoutes() {
+    var custom = read(LS_PROXY) || DEFAULT_PROXY;
+    /* В приложении запрос перехватывает MediaProxy. Сначала пробуем его, затем Worker. */
+    if (IN_APP || location.protocol === 'file:') {
+      ROUTES.push({ id: 'direct', wrap: function (url) { return url; } });
+    }
+    if (custom) {
+      ROUTES.push({
+        id: 'custom',
+        wrap: function (url) {
+          return custom.indexOf('{url}') >= 0
+            ? custom.replace('{url}', encodeURIComponent(url))
+            : custom + encodeURIComponent(url);
+        }
+      });
+    }
   })();
 
   function withTimeout(url, options) {
-    var controller = null;
-    var settings = options || {};
-    try {
-      controller = new AbortController();
-      settings = Object.assign({}, settings, { signal: controller.signal });
-    } catch (e) {}
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var settings = Object.assign({}, options || {});
+    if (controller) settings.signal = controller.signal;
     var timer = setTimeout(function () { if (controller) controller.abort(); }, TIMEOUT);
-    return nativeFetch(url, settings).then(
-      function (res) { clearTimeout(timer); return res; },
-      function (err) { clearTimeout(timer); throw err; }
-    );
+    return nativeFetch(url, settings).then(function (response) {
+      clearTimeout(timer);
+      return response;
+    }, function (error) {
+      clearTimeout(timer);
+      throw error;
+    });
   }
 
-  /* некоторые передатчики отдают JSON внутри текста — вытаскиваем его */
   function parseJson(text) {
     try { return JSON.parse(text); } catch (e) {}
     var start = text.indexOf('{');
@@ -102,12 +70,11 @@
   function apiUrl(path, params) {
     var url = new URL('https://kodik-api.com' + path);
     Object.keys(params || {}).forEach(function (key) {
-      if (params[key] !== undefined && params[key] !== null) url.searchParams.set(key, String(params[key]));
+      var value = params[key];
+      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
     });
     return url.toString();
   }
-
-  /* ---------------- токены ---------------- */
 
   function decryptToken(value) {
     function decode(part) {
@@ -126,28 +93,24 @@
     return list;
   }
 
-  /* свежий список токенов из открытого реестра (у raw.githubusercontent есть CORS) */
   function freshTokens() {
-    return withTimeout(TOKENS_URL, { cache: 'no-store' })
-      .then(function (res) { return res.ok ? res.text() : ''; })
-      .then(function (text) {
-        var data = parseJson(text || '');
-        if (!data) return [];
-        var out = [];
-        ['stable', 'unstable', 'legacy'].forEach(function (group) {
-          (data[group] || []).forEach(function (item) {
-            try {
-              var token = decryptToken(item.tokn);
-              if (/^[a-f0-9]{20,}$/i.test(token) && out.indexOf(token) < 0) out.push(token);
-            } catch (e) {}
-          });
+    return withTimeout(TOKENS_URL, { cache: 'no-store' }).then(function (response) {
+      return response.ok ? response.text() : '';
+    }).then(function (text) {
+      var data = parseJson(text || '');
+      if (!data) return [];
+      var out = [];
+      ['stable', 'unstable', 'legacy'].forEach(function (group) {
+        (data[group] || []).forEach(function (item) {
+          try {
+            var token = decryptToken(item.tokn);
+            if (/^[a-f0-9]{20,}$/i.test(token) && out.indexOf(token) < 0) out.push(token);
+          } catch (e) {}
         });
-        return out;
-      })
-      .catch(function () { return []; });
+      });
+      return out;
+    }).catch(function () { return []; });
   }
-
-  /* ---------------- подбор рабочей связки ---------------- */
 
   var state = {
     token: read(LS_TOKEN) || BASE_TOKENS[0],
@@ -158,30 +121,25 @@
   };
 
   function routeById(id) {
-    for (var i = 0; i < ROUTES.length; i += 1) {
-      if (ROUTES[i].id === id) return ROUTES[i];
-    }
-    return null;
+    return ROUTES.filter(function (route) { return route.id === id; })[0] || null;
   }
 
   function probe(token, route) {
     var url = apiUrl('/list', { token: token, limit: 1, types: 'anime,anime-serial' });
-    return withTimeout(route.wrap(url), { method: 'GET', cache: 'no-store' })
-      .then(function (res) { return res.text(); })
-      .then(function (text) {
-        var data = parseJson(text || '');
-        if (!data) throw new Error('bad json');
-        if (data.error) throw new Error(String(data.error));
-        if (!Array.isArray(data.results)) throw new Error('no results');
-        return true;
-      });
+    return withTimeout(route.wrap(url), { method: 'GET', cache: 'no-store' }).then(function (response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.text();
+    }).then(function (text) {
+      var data = parseJson(text || '');
+      if (!data || data.error || !Array.isArray(data.results)) throw new Error('bad response');
+      return true;
+    });
   }
 
   function sequence(pairs, index) {
     if (index >= pairs.length) return Promise.resolve(null);
     var pair = pairs[index];
-    return probe(pair.token, pair.route)
-      .then(function () { return pair; })
+    return probe(pair.token, pair.route).then(function () { return pair; })
       .catch(function () { return sequence(pairs, index + 1); });
   }
 
@@ -190,10 +148,11 @@
     var savedRoute = routeById(read(LS_ROUTE));
     var savedToken = read(LS_TOKEN);
     if (savedRoute && savedToken) pairs.push({ token: savedToken, route: savedRoute });
-    /* сначала проходим все токены на одном передатчике, потом меняем передатчик */
     ROUTES.forEach(function (route) {
       tokens.forEach(function (token) {
-        pairs.push({ token: token, route: route });
+        if (!pairs.some(function (pair) { return pair.route === route && pair.token === token; })) {
+          pairs.push({ token: token, route: route });
+        }
       });
     });
     return pairs;
@@ -201,35 +160,36 @@
 
   function resolve(force) {
     if (state.ready && !force) return state.ready;
-    state.ready = sequence(buildPairs(tokenList()), 0)
-      .then(function (found) {
-        if (found) return found;
-        /* ни одна известная связка не ответила — тянем свежие токены и пробуем ещё раз */
-        return freshTokens().then(function (tokens) {
-          var extra = tokens.filter(function (token) { return tokenList().indexOf(token) < 0; });
-          if (!extra.length) return null;
-          return sequence(buildPairs(extra), 0);
-        });
-      })
-      .then(function (found) {
-        if (!found) {
-          state.ok = false;
-          state.reason = 'no-route';
-          return null;
-        }
-        state.ok = true;
-        state.reason = '';
-        state.token = found.token;
-        state.route = found.route;
-        write(LS_TOKEN, found.token);
-        write(LS_ROUTE, found.route.id);
-        write(LS_FOUND, String(Date.now()));
-        return found;
+    state.ready = sequence(buildPairs(tokenList()), 0).then(function (found) {
+      if (found) return found;
+      return freshTokens().then(function (tokens) {
+        var known = tokenList();
+        return sequence(buildPairs(tokens.filter(function (token) { return known.indexOf(token) < 0; })), 0);
       });
+    }).then(function (found) {
+      if (!found) {
+        state.ok = false;
+        state.reason = 'no-route';
+        state.route = null;
+        return null;
+      }
+      state.ok = true;
+      state.reason = '';
+      state.token = found.token;
+      state.route = found.route;
+      write(LS_TOKEN, found.token);
+      write(LS_ROUTE, found.route.id);
+      write(LS_FOUND, String(Date.now()));
+      document.documentElement.setAttribute('data-kodik', found.route.id);
+      return found;
+    }).catch(function () {
+      state.ok = false;
+      state.reason = 'network';
+      state.route = null;
+      return null;
+    });
     return state.ready;
   }
-
-  /* ---------------- запросы ---------------- */
 
   function retarget(rawUrl) {
     var url;
@@ -238,113 +198,74 @@
     url.protocol = 'https:';
     url.hostname = 'kodik-api.com';
     url.searchParams.set('token', state.token);
+    url.searchParams.delete('page');
     return url.toString();
   }
 
   function through(url) {
     var route = state.route || routeById(read(LS_ROUTE)) || ROUTES[0];
-    return withTimeout(route.wrap(url), { method: 'GET', cache: 'no-store' })
-      .then(function (res) { return res.text(); })
-      .then(function (text) {
-        var data = parseJson(text || '');
-        if (!data) throw new Error('bad json');
-        if (data.error) throw new Error(String(data.error));
-        return data;
+    if (!route) return Promise.reject(new Error('kodik-unavailable'));
+    return withTimeout(route.wrap(url), { method: 'GET', cache: 'no-store' }).then(function (response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.text();
+    }).then(function (text) {
+      var data = parseJson(text || '');
+      if (!data || data.error) throw new Error(data && data.error ? String(data.error) : 'bad json');
+      return data;
+    });
+  }
+
+  function requestUrl(rawUrl, allowRetry) {
+    return resolve().then(function () {
+      if (!state.ok) throw new Error('kodik-unavailable');
+      var target = retarget(rawUrl);
+      if (!target) throw new Error('kodik-invalid-url');
+      return through(target);
+    }).catch(function (error) {
+      if (allowRetry === false) throw error;
+      return resolve(true).then(function () {
+        if (!state.ok) throw error;
+        var target = retarget(rawUrl);
+        if (!target) throw error;
+        return through(target);
       });
-  }
-
-  /* у Kodik нет параметра page: лишнее поле даёт 400, страницы листаются по ссылке next_page */
-  function sanitize(raw) {
-    var url;
-    try { url = new URL(raw); } catch (e) { return { url: raw, page: 1 }; }
-    var page = parseInt(url.searchParams.get('page') || '1', 10);
-    url.searchParams.delete('page');
-    return { url: url.toString(), page: isFinite(page) && page > 0 ? page : 1 };
-  }
-
-  function walk(url, page) {
-    return through(url).then(function (data) {
-      if (page <= 1) return data;
-      if (!data.next_page) return { results: [], total: data.total || 0, next_page: null, prev_page: null };
-      return walk(data.next_page, page - 1);
     });
   }
 
   function request(path, params) {
     return resolve().then(function () {
       if (!state.ok) throw new Error('kodik-unavailable');
-      var merged = Object.assign({}, params || {}, { token: state.token });
-      var plan = sanitize(apiUrl(path, merged));
-      return walk(plan.url, plan.page).catch(function (err) {
-        /* связка рассыпалась на ходу: подбираем заново и повторяем один раз */
-        return resolve(true).then(function () {
-          if (!state.ok) throw err;
-          var retry = sanitize(apiUrl(path, Object.assign({}, params || {}, { token: state.token })));
-          return walk(retry.url, retry.page);
-        });
-      });
+      return requestUrl(apiUrl(path, Object.assign({}, params || {}, { token: state.token })));
     });
   }
 
-  /* перехват fetch: весь старый код продолжает звать API напрямую, а уходит через рабочий передатчик */
   function patchFetch() {
-    var inner = window.fetch.bind(window);
     if (window.fetch.__animruKodikNet) return;
-
     function patched(input, init) {
       var rawUrl = typeof input === 'string' ? input : (input && input.url) || '';
-      var target = rawUrl ? retarget(rawUrl) : null;
-      if (!target) return inner(input, init);
-
-      return resolve()
-        .then(function () {
-          if (!state.ok) throw new Error('kodik-unavailable');
-          var plan = sanitize(retarget(rawUrl));
-          return walk(plan.url, plan.page);
-        })
-        .then(function (data) {
-          return new Response(JSON.stringify(data), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        })
-        .catch(function () {
-          return new Response(JSON.stringify({ results: [], total: 0, error: 'kodik-unavailable' }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+      if (!rawUrl || !retarget(rawUrl)) return nativeFetch(input, init);
+      return requestUrl(rawUrl).then(function (data) {
+        return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+      }).catch(function () {
+        return new Response(JSON.stringify({ results: [], total: 0, error: 'kodik-unavailable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' }
         });
+      });
     }
-
     patched.__animruKodikNet = true;
     window.fetch = patched;
   }
 
-  /* ---------------- подсказка в каталоге ---------------- */
-
-  function hint() {
-    var node = document.getElementById('kbStatus');
-    if (!node) return;
-    if (state.ok) return;
-    node.textContent = 'Kodik не ответил ни через один из каналов. Проверь свой прокси или вставь свежий токен в поле ниже.';
-  }
-
   patchFetch();
-  /* если другой модуль переопределит fetch позже — возвращаем свой перехват наверх */
-  setInterval(function () {
-    if (!window.fetch.__animruKodikNet) patchFetch();
-  }, 150);
-
   window.AnimKodikNet = {
     request: request,
+    requestUrl: requestUrl,
     resolve: resolve,
     state: function () {
       return { ok: state.ok, token: state.token, route: state.route ? state.route.id : null, reason: state.reason };
     },
-    setProxy: function (template) {
-      write(LS_PROXY, template || '');
-      location.reload();
-    },
+    setProxy: function (template) { write(LS_PROXY, template || ''); location.reload(); },
     setToken: function (token) {
       write(LS_TOKEN, token || '');
       state.token = token || BASE_TOKENS[0];
@@ -352,9 +273,5 @@
     },
     routes: ROUTES.map(function (route) { return route.id; })
   };
-
-  resolve().then(function () {
-    hint();
-    if (state.ok) document.documentElement.setAttribute('data-kodik', state.route.id);
-  });
+  resolve();
 })();
