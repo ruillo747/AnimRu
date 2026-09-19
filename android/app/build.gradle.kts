@@ -11,16 +11,15 @@ android {
         applicationId = "ru.animru.app"
         minSdk = 23
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Своего keystore в CI нет, поэтому подписываем отладочным ключом:
-            // без подписи Android откажется устанавливать release-APK.
+            /* Временная подпись для sideload-сборки. Для Play нужен отдельный upload key. */
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -31,14 +30,10 @@ android {
     }
 
     kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
+        compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
     }
 
-    lint {
-        abortOnError = false
-    }
+    lint { abortOnError = true }
 }
 
 dependencies {
